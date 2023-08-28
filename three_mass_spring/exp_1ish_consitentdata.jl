@@ -9,17 +9,28 @@
 # # Chosen random seed 649, will be used for all experiments 
 # Random.seed!(649)
 
-function exp_3_obsofavg()
+function exp_1ish_consistentdata(j)
 
     # Parameter choices 
     T = 10000          # Total number of steps to integrate
     r = 0.5               # spring coefficient 
-    q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))                       # known forcing function 
-    q_kf(t) = 0.5 * q_true(t)                                           # forcing seen by KF (and adjoint)
-    data_steps1 = [k for k in 2500:300:7000]
-    data_steps2 = [k for k in 7300:150:T]
-    data_steps = [data_steps1; data_steps2; T]       # steps where data will be assimilated
-
+    q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function 
+    q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF (and adjoint)
+    
+    data_steps1 = [k for k in 1:300:T]
+    data_steps2 = [k for k in 1:875:T]
+    data_steps3 = [k for k in 1:1000:T]
+    data_steps4 = [k for k in 1:1500:T]
+    if j == 1
+        data_steps = data_steps1        # steps where data will be assimilated
+    elseif j == 2
+        data_steps = [data_steps2;10000]
+    elseif j == 3
+        data_steps = [data_steps3;10000]
+    elseif j == 4
+        data_steps = data_steps4
+    end
+    
     rand_forcing = 0.1 .* randn(T+1)
     u = zeros(6, T+1)
     u[1, :] .= rand_forcing
@@ -27,8 +38,7 @@ function exp_3_obsofavg()
     params_true = mso_params(T = T,
     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     u = u,
-    n = 0.01 .* randn(6, T+1), 
-    # n = 0.05 .* randn(6, T+1), 
+    n = 0.05 .* randn(6, T+1), 
     q = q_true,
     data_steps = data_steps,
     data = zeros(1,1),
@@ -45,34 +55,28 @@ function exp_3_obsofavg()
     energy = zeros(3, T+1)
     )
 
-    ops = build_ops(
-        params_true, 
-        E = zeros(2,6), 
-        R = zeros(2,2),
-        K = zeros(6,2)
-    )
+    ops = build_ops(params_true)
 
-    # assuming data is an average of positions 1 and 2 and velocities 2 and 3
-    ops.E[1,1] = 0.5 
-    ops.E[1,2] = 0.5
-    ops.E[2,5] = 0.5
-    ops.E[2,6] = 0.5
+    # assuming data of all positions and velocities -> E is the identity operator 
+    ops.E .= Diagonal(ones(6))
 
     ops.Q[1,1] = cov(params_true.u[:], corrected=false)
-    ops.R .= cov(params_true.n[:], corrected=false) .* Diagonal(ones(2))
+    ops.R .= cov(params_true.n[:], corrected=false) .* Diagonal(ones(6))
 
     # assuming random forcing on position of mass one 
     ops.Gamma[1, 1] = 1.0 
 
+
     # pure prediction model 
     _ = create_data(params_pred, ops)
 
+    # truth model
     states_noisy = create_data(params_true, ops)
 
     params_kf = mso_params(T=T, 
     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     u = 0.0 .* u,
-    n = 0.0 .* randn(6, T+1), 
+    n = 0.001 .* randn(6, T+1), 
     q = q_kf,
     data_steps = data_steps,
     data = states_noisy,
@@ -88,7 +92,7 @@ function exp_3_obsofavg()
     params_adjoint = mso_params(T=T, 
     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     u = 0.0 .* u,
-    n = 0.0 .* randn(6, T+1), 
+    n = 0.001 .* randn(6, T+1), 
     q = q_kf,
     data_steps = data_steps,
     data = states_noisy,
@@ -96,14 +100,16 @@ function exp_3_obsofavg()
     energy = zeros(3, T+1)
     )
 
-    grad_descent(100, params_adjoint, ops)
+    grad_descent(300, params_adjoint, ops)
 
     params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     params_adjoint.states .= zeros(6, T+1)
 
-    _ = run_adjoint(params_adjoint, 
+    adjoint_variables = run_adjoint(params_adjoint, 
         ops
     )
+
+    ################################################
 
     # creating plots for second experiment  
     # plot of the position of mass one 
@@ -111,7 +117,7 @@ function exp_3_obsofavg()
         label = L"x_1(t)"
     )
     plot!(params_pred.states[1,:],
-    label = L"\tilde{x}_1(t, -)"
+    label = L"\tilde{x}(t, -)"
     )
     plot!(params_kf.states[1,:],
         label = L"\tilde{x}_1(t)",
@@ -174,6 +180,7 @@ function exp_3_obsofavg()
         dpi = 300, 
         legend = :outerright
 )
+
 
 end
 

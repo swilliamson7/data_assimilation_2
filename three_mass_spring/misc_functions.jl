@@ -16,17 +16,18 @@ function build_ops(params; E = zeros(6,6), R = zeros(6,6), K = zeros(6,6))
     ms_ops = mso_operators(A=A,
     E=E,
     R=R,
-    K=K
+    K=K, 
+    Kc=Kc
     )
 
     return ms_ops 
 end
 
 # computes the kinetic energy given a state vector x 
-function compute_energy(x)
+function compute_energy(x, Kc)
 
     kin = 0.5 * (x[4:6]' * x[4:6])
-    ptl = 0.5 * (-x[1:3]' * x[1:3])
+    ptl = 0.5 * (-x[1:3]' * Kc * x[1:3])
 
     return kin, ptl, kin + ptl
 
@@ -35,13 +36,13 @@ end
 function create_data(params, ops)
 
     @unpack T, x, u, n, q, dt, states, energy = params
-    @unpack A, B, Gamma = ops
+    @unpack A, B, Gamma, Kc = ops
 
     states[:,1] .= x
 
     states_noisy = zeros(6,T+1)
     states_noisy[:,1] .= x + n[:,1]
-    kin, ptl, total = compute_energy(states[:,1])
+    kin, ptl, total = compute_energy(states[:,1], Kc)
     energy[:, 1] = [kin;ptl;total]
     temp = 0.0
     for j = 2:T+1 
@@ -50,7 +51,7 @@ function create_data(params, ops)
 
         states[:, j] .= copy(x)
 
-        kin, ptl, total = compute_energy(x)
+        kin, ptl, total = compute_energy(x, Kc)
         energy[:,j] = [kin;ptl;total]
 
         states_noisy[:, j] = copy(x) + n[:, j]
@@ -77,6 +78,91 @@ function one_step_forward(
     # else
     #     Jout = Jin
     # end
+
+    return nothing 
+
+end
+
+
+function integrate(mso_struct)
+
+    @unpack A, B, Gamma, E, R, Kc, Q = mso_struct
+    @unpack T, x, u, dt, states, data, energy, q =  mso_struct
+    @unpack data_steps, J = mso_struct 
+
+    kin, ptl, total = compute_energy(states[:,1], Kc)
+    energy[:,1] = [kin;ptl;total]
+
+    Q_inv = 1/ops.Q[1,1]
+
+    # run the model forward to get estimates for the states 
+    temp = 0.0 
+    for t = 2:T+1 
+
+        x .= A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, t]
+        states[:, t] .= copy(x) 
+
+        kin, ptl, total = compute_energy(x, Kc)
+        energy[:,t] = [kin;ptl;total]
+
+        temp += dt
+
+        if t in data_steps 
+
+            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R^(-1) * (E * x - E * data[:, t]) 
+
+            if t != T && t in data_steps 
+                mso_struct.J = mso_struct.J + u[:, t]' * Q_inv * u[:, t]
+            end
+
+        end
+
+        kin, ptl, total = compute_energy(x, Kc)
+        energy[:,t] = [kin;ptl;total]
+
+    end 
+
+    return nothing 
+
+end
+
+function integrate(mso_struct, ops)
+
+    @unpack A, B, Gamma, E, R, Kc, Q = ops
+    @unpack T, x, u, q, dt, states, data, energy =  mso_struct
+    @unpack data_steps = mso_struct 
+
+    kin, ptl, total = compute_energy(states[:,1], Kc)
+    energy[:,1] = [kin;ptl;total]
+
+    Q_inv = 1/ops.Q[1,1]
+
+    # run the model forward to get estimates for the states 
+    temp = 0.0 
+    for t = 2:T+1 
+
+        x .= A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, t]
+        states[:, t] .= copy(x) 
+
+        kin, ptl, total = compute_energy(x, Kc)
+        energy[:,t] = [kin;ptl;total]
+
+        temp += dt
+
+        if t in data_steps 
+
+            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R^(-1) * (E * x - E * data[:, t]) 
+
+            if t != T && t in data_steps 
+                mso_struct.J = mso_struct.J + u[:, t]' * Q_inv * u[:, t]
+            end
+
+        end
+
+        kin, ptl, total = compute_energy(x, Kc)
+        energy[:,t] = [kin;ptl;total]
+
+    end 
 
     return nothing 
 

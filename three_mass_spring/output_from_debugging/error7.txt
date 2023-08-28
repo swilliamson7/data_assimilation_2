@@ -1,0 +1,123 @@
+┌ Warning: Using fallback BLAS replacements, performance may be degraded
+└ @ Enzyme.Compiler ~/.julia/packages/GPUCompiler/kwkKA/src/utils.jl:56
+
+signal (11): Segmentation fault: 11
+in expression starting at /Users/swilliamson/Documents/GitHub/data_assimilation_2/three_mass_spring/debugging.jl:288
+gc_mark_loop at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+_jl_gc_collect at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+ijl_gc_collect at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+jl_gc_pool_alloc_noinline at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+jl_gc_alloc at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+array_resize_buffer at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+jl_array_grow_at_end at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+ijl_array_sizehint at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+sizehint! at ./array.jl:1267 [inlined]
+BitSet at ./bitset.jl:18 [inlined]
+find_ssavalue_uses at ./compiler/utilities.jl:251
+InferenceState at ./compiler/inferencestate.jl:104
+InferenceState at ./compiler/inferencestate.jl:287
+abstract_call_method_with_const_args at ./compiler/abstractinterpretation.jl:865
+abstract_call_method_with_const_args at ./compiler/abstractinterpretation.jl:835
+abstract_call_gf_by_type at ./compiler/abstractinterpretation.jl:148
+abstract_call_known at ./compiler/abstractinterpretation.jl:1716
+abstract_call at ./compiler/abstractinterpretation.jl:1786
+abstract_call at ./compiler/abstractinterpretation.jl:1753
+abstract_eval_statement at ./compiler/abstractinterpretation.jl:1910
+typeinf_local at ./compiler/abstractinterpretation.jl:2386
+typeinf_nocycle at ./compiler/abstractinterpretation.jl:2482
+_typeinf at ./compiler/typeinfer.jl:230
+typeinf at ./compiler/typeinfer.jl:213
+abstract_call_method_with_const_args at ./compiler/abstractinterpretation.jl:868
+abstract_call_method_with_const_args at ./compiler/abstractinterpretation.jl:835
+abstract_call_gf_by_type at ./compiler/abstractinterpretation.jl:148
+abstract_call_known at ./compiler/abstractinterpretation.jl:1716
+abstract_call at ./compiler/abstractinterpretation.jl:1786
+abstract_call at ./compiler/abstractinterpretation.jl:1753
+abstract_eval_statement at ./compiler/abstractinterpretation.jl:1910
+typeinf_local at ./compiler/abstractinterpretation.jl:2386
+typeinf_nocycle at ./compiler/abstractinterpretation.jl:2482
+_typeinf at ./compiler/typeinfer.jl:230
+typeinf at ./compiler/typeinfer.jl:213
+abstract_call_method_with_const_args at ./compiler/abstractinterpretation.jl:868
+abstract_call_method_with_const_args at ./compiler/abstractinterpretation.jl:835
+abstract_call_gf_by_type at ./compiler/abstractinterpretation.jl:148
+abstract_call_known at ./compiler/abstractinterpretation.jl:1716
+abstract_call at ./compiler/abstractinterpretation.jl:1786
+abstract_call at ./compiler/abstractinterpretation.jl:1753
+abstract_eval_statement at ./compiler/abstractinterpretation.jl:1910
+typeinf_local at ./compiler/abstractinterpretation.jl:2386
+typeinf_nocycle at ./compiler/abstractinterpretation.jl:2482
+_typeinf at ./compiler/typeinfer.jl:230
+typeinf at ./compiler/typeinfer.jl:213
+abstract_call_method_with_const_args at ./compiler/abstractinterpretation.jl:868
+abstract_call_method_with_const_args at ./compiler/abstractinterpretation.jl:835
+abstract_call_gf_by_type at ./compiler/abstractinterpretation.jl:148
+abstract_call_known at ./compiler/abstractinterpretation.jl:1716
+abstract_call at ./compiler/abstractinterpretation.jl:1786
+abstract_call at ./compiler/abstractinterpretation.jl:1753
+abstract_eval_statement at ./compiler/abstractinterpretation.jl:1910
+typeinf_local at ./compiler/abstractinterpretation.jl:2360
+typeinf_nocycle at ./compiler/abstractinterpretation.jl:2482
+_typeinf at ./compiler/typeinfer.jl:230
+typeinf at ./compiler/typeinfer.jl:213
+abstract_call_method_with_const_args at ./compiler/abstractinterpretation.jl:868
+abstract_call_method_with_const_args at ./compiler/abstractinterpretation.jl:835
+abstract_call_gf_by_type at ./compiler/abstractinterpretation.jl:148
+abstract_call_known at ./compiler/abstractinterpretation.jl:1716
+abstract_call at ./compiler/abstractinterpretation.jl:1786
+abstract_call at ./compiler/abstractinterpretation.jl:1753
+abstract_eval_statement at ./compiler/abstractinterpretation.jl:1910
+typeinf_local at ./compiler/abstractinterpretation.jl:2360
+typeinf_nocycle at ./compiler/abstractinterpretation.jl:2482
+_typeinf at ./compiler/typeinfer.jl:230
+typeinf at ./compiler/typeinfer.jl:213
+typeinf_edge at ./compiler/typeinfer.jl:877
+abstract_call_method at ./compiler/abstractinterpretation.jl:647
+abstract_call_gf_by_type at ./compiler/abstractinterpretation.jl:139
+abstract_call at ./compiler/abstractinterpretation.jl:1784
+abstract_call at ./compiler/abstractinterpretation.jl:1753
+abstract_eval_statement at ./compiler/abstractinterpretation.jl:1910
+typeinf_local at ./compiler/abstractinterpretation.jl:2360
+typeinf_nocycle at ./compiler/abstractinterpretation.jl:2482
+_typeinf at ./compiler/typeinfer.jl:230
+typeinf at ./compiler/typeinfer.jl:213
+typeinf_ext at ./compiler/typeinfer.jl:967
+typeinf_ext_toplevel at ./compiler/typeinfer.jl:1000
+typeinf_ext_toplevel at ./compiler/typeinfer.jl:996
+jfptr_typeinf_ext_toplevel_15255 at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/sys.dylib (unknown line)
+ijl_apply_generic at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+jl_type_infer at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+jl_generate_fptr_impl at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-codegen.1.8.dylib (unknown line)
+jl_compile_method_internal at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+ijl_apply_generic at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+#s260#474 at /Users/swilliamson/.julia/packages/Enzyme/dByM2/src/compiler.jl:9765 [inlined]
+#s260#474 at ./none:0
+ijl_apply_generic at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+GeneratedFunctionStub at ./boot.jl:582
+ijl_apply_generic at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+jl_call_staged at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+ijl_code_for_staged at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+get_staged at ./compiler/utilities.jl:114
+retrieve_code_info at ./compiler/utilities.jl:126 [inlined]
+InferenceState at ./compiler/inferencestate.jl:284
+typeinf_edge at ./compiler/typeinfer.jl:868
+abstract_call_method at ./compiler/abstractinterpretation.jl:647
+abstract_call_gf_by_type at ./compiler/abstractinterpretation.jl:139
+abstract_call_known at ./compiler/abstractinterpretation.jl:1716
+abstract_call at ./compiler/abstractinterpretation.jl:1786
+abstract_call at ./compiler/abstractinterpretation.jl:1753
+abstract_eval_statement at ./compiler/abstractinterpretation.jl:1910
+typeinf_local at ./compiler/abstractinterpretation.jl:2386
+typeinf_nocycle at ./compiler/abstractinterpretation.jl:2482
+_typeinf at ./compiler/typeinfer.jl:230
+typeinf at ./compiler/typeinfer.jl:213
+typeinf_ext at ./compiler/typeinfer.jl:967
+typeinf_ext_toplevel at ./compiler/typeinfer.jl:1000
+typeinf_ext_toplevel at ./compiler/typeinfer.jl:996
+jfptr_typeinf_ext_toplevel_15255 at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/sys.dylib (unknown line)
+ijl_apply_generic at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+jl_type_infer at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+jl_generate_fptr_impl at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-codegen.1.8.dylib (unknown line)
+jl_compile_method_internal at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+ijl_apply_generic at /Applications/Julia-1.8.app/Contents/Resources/julia/lib/julia/libjulia-internal.1.8.dylib (unknown line)
+Allocations: 72542602 (Pool: 72505180; Big: 37422); GC: 62

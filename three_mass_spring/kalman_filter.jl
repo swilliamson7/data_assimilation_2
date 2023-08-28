@@ -2,18 +2,17 @@
 
 function run_kalman_filter(
     params, 
-    ops, 
-    data;
-    data_steps = [k for k in 100:125:700]
+    ops
 )
 
-    @unpack A, B, Gamma, P0, P, E, Q, R, K = ops 
+    @unpack A, B, Gamma, P0, P, E, Q, R, K, Kc = ops 
     @unpack T, x, dt, states, energy =  params 
+    @unpack data, data_steps = params 
 
     states[:, 1] .= x
     uncertainty = [copy(P0)]
 
-    kin, ptl, total = compute_energy(x)
+    kin, ptl, total = compute_energy(x, Kc)
     energy[:,1] = [kin;ptl;total]
 
     P .= P0
@@ -32,7 +31,7 @@ function run_kalman_filter(
 
         end 
 
-        kin, ptl, total = compute_energy(x)
+        kin, ptl, total = compute_energy(x, Kc)
         energy[:,t] = [kin;ptl;total]
 
         states[:, t] .= x
