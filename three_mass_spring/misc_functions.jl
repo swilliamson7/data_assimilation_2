@@ -67,7 +67,7 @@ function integrate(mso_struct::mso_params_ops)
 
     @unpack A, B, Gamma, E, R, R_inv, Kc, Q, Q_inv = mso_struct
     @unpack T, x, u, dt, states, data, energy, q =  mso_struct
-    @unpack data_steps, J = mso_struct 
+    @unpack data_steps, J = mso_struct
 
     states[:,1] .= x
 
@@ -75,11 +75,11 @@ function integrate(mso_struct::mso_params_ops)
     energy[:,1] = [kin;ptl;total]
 
     # run the model forward to get estimates for the states 
-    temp = 0.0 
-    for t = 2:T+1 
+    temp = 0.0
+    for t = 2:T+1
 
         x .= A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, t-1]
-        states[:, t] .= copy(x) 
+        states[:, t] .= copy(x)
 
         temp += dt
 
@@ -102,7 +102,7 @@ function integrate(mso_struct::mso_params, ops::mso_operators)
 
     @unpack A, B, Gamma, E, R, Kc, Q = ops
     @unpack T, x, u, q, dt, states, data, energy =  mso_struct
-    @unpack data_steps = mso_struct 
+    @unpack data_steps = mso_struct
 
     kin, ptl, total = compute_energy(states[:,1], Kc)
     energy[:,1] = [kin;ptl;total]
@@ -150,6 +150,6 @@ function one_step_forward(
     #     Jout = Jin
     # end
 
-    return nothing 
+    return nothing
 
 end

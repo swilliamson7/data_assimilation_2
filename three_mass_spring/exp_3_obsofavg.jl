@@ -93,27 +93,32 @@ function exp_3_obsofavg()
     #     ops
     # )
 
-    params_adjoint = mso_params_ops(T=T, 
-    t = 0,
-    x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    u = 0.0 .* u,
-    n = 0.0 .* randn(6, T+1), 
-    q = q_kf,
-    data_steps = data_steps,
-    data = states_noisy,
-    states = zeros(6, T+1),
-    energy = zeros(3, T+1), 
-    A = ops.A,
-    B = ops.B, 
-    Gamma = ops.Gamma, 
-    E = ops.E, 
-    Q = ops.Q, 
-    R = ops.R,
-    K = ops.K,
-    Kc = ops.Kc
+    diag = 1 / ops.Q[1,1]
+    Q_inv = diag
+    R_inv = ops.R^(-1)
+    params_adjoint = mso_params_ops(T=T,
+        t = 0,
+        x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        u = 0.0 .* u,
+        n = 0.001 .* randn(6, T+1),
+        q = q_kf,
+        J = 0.0,
+        data_steps = data_steps,
+        data = states_noisy,
+        states = zeros(6, T+1),
+        energy = zeros(3, T+1),
+        A = ops.A,
+        B = ops.B,
+        Gamma = ops.Gamma,
+        E = ops.E,
+        Q = ops.Q,
+        Q_inv = Q_inv,
+        R = ops.R,
+        R_inv = R_inv,
+        K = ops.K,
+        Kc = ops.Kc
     )
-
-    grad_descent(100, params_adjoint, params_adjoint.x)
+    grad_descent(100, params_adjoint, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
     # creating plots for second experiment  
     # plot of the position of mass one 
