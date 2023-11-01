@@ -63,70 +63,42 @@ function create_data(params, ops)
 
 end
 
-function one_step_forward(
-    t,
-    xout,
-    xin, 
-    params,
-    ops
-)
+function integrate(mso_struct::mso_params_ops)
 
-    xout[:] = ops.A * xin + ops.B * [params.q(t); 0.; 0.; 0.; 0.; 0.]
-
-    # if j in params.data_steps
-    #     Jout = Jin  + (xout - data[:, j])' * (xout - data[:, j])
-    # else
-    #     Jout = Jin
-    # end
-
-    return nothing 
-
-end
-
-
-function integrate(mso_struct)
-
-    @unpack A, B, Gamma, E, R, Kc, Q = mso_struct
+    @unpack A, B, Gamma, E, R, R_inv, Kc, Q, Q_inv = mso_struct
     @unpack T, x, u, dt, states, data, energy, q =  mso_struct
     @unpack data_steps, J = mso_struct 
 
+    states[:,1] .= x
+
     kin, ptl, total = compute_energy(states[:,1], Kc)
     energy[:,1] = [kin;ptl;total]
-
-    Q_inv = 1/ops.Q[1,1]
 
     # run the model forward to get estimates for the states 
     temp = 0.0 
     for t = 2:T+1 
 
-        x .= A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, t]
+        x .= A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, t-1]
         states[:, t] .= copy(x) 
-
-        kin, ptl, total = compute_energy(x, Kc)
-        energy[:,t] = [kin;ptl;total]
 
         temp += dt
 
-        if t in data_steps 
+        if t in data_steps
 
-            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R^(-1) * (E * x - E * data[:, t]) 
-
-            if t != T && t in data_steps 
-                mso_struct.J = mso_struct.J + u[:, t]' * Q_inv * u[:, t]
-            end
+            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R_inv * (E * x - E * data[:, t]) + u[:, t]' * Q_inv * u[:, t]
 
         end
 
         kin, ptl, total = compute_energy(x, Kc)
         energy[:,t] = [kin;ptl;total]
 
-    end 
+    end
 
     return nothing 
 
 end
 
-function integrate(mso_struct, ops)
+function integrate(mso_struct::mso_params, ops::mso_operators)
 
     @unpack A, B, Gamma, E, R, Kc, Q = ops
     @unpack T, x, u, q, dt, states, data, energy =  mso_struct
@@ -134,28 +106,22 @@ function integrate(mso_struct, ops)
 
     kin, ptl, total = compute_energy(states[:,1], Kc)
     energy[:,1] = [kin;ptl;total]
+    states[:,1] .= x
 
     Q_inv = 1/ops.Q[1,1]
 
     # run the model forward to get estimates for the states 
-    temp = 0.0 
-    for t = 2:T+1 
+    temp = 0.0
+    for t = 2:T+1
 
-        x .= A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, t]
-        states[:, t] .= copy(x) 
-
-        kin, ptl, total = compute_energy(x, Kc)
-        energy[:,t] = [kin;ptl;total]
+        x .= A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, t-1]
+        states[:, t] .= copy(x)
 
         temp += dt
 
-        if t in data_steps 
+        if t in data_steps
 
-            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R^(-1) * (E * x - E * data[:, t]) 
-
-            if t != T && t in data_steps 
-                mso_struct.J = mso_struct.J + u[:, t]' * Q_inv * u[:, t]
-            end
+            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R^(-1) * (E * x - E * data[:, t]) + u[:, t]' * Q_inv * u[:, t]
 
         end
 
@@ -163,6 +129,26 @@ function integrate(mso_struct, ops)
         energy[:,t] = [kin;ptl;total]
 
     end 
+
+    return nothing 
+
+end
+
+function one_step_forward(
+    t,
+    xout,
+    xin, 
+    params,
+    ops,
+    u)
+
+    xout[:] = ops.A * xin + ops.B * [params.q(t); 0.; 0.; 0.; 0.; 0.] + ops.Gamma * u
+
+    # if j in params.data_steps
+    #     Jout = Jin  + (xout - data[:, j])' * (xout - data[:, j])
+    # else
+    #     Jout = Jin
+    # end
 
     return nothing 
 

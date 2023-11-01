@@ -34,7 +34,7 @@ end
     t::Int = 0           # placeholder for current step
     dt::Float64 = 0.001  # timestep
 
-    x::Vector{Float64} = zeros(6)      # placeholder for state vector 
+    x::Vector{Float64} = zeros(6)        # placeholder for state vector 
     u::Matrix{Float64} = zeros(6, T+1)   # random forcing (if any), otherwise just leave zero 
     n::Matrix{Float64} = zeros(6, T+1)   # placeholder for noise to add to the data 
 
@@ -45,7 +45,7 @@ end
 
     J::Float64 = 0.0     # cost function evaluation 
 
-    data_steps::Vector{Int64}       # the timesteps where data points exist 
+    data_steps::Vector{Int64}  # the timesteps where data points exist 
     data::Matrix{Float64}
 
     states::Matrix{Float64}    # placeholder for computed states 
@@ -57,8 +57,10 @@ end
 
     E::Matrix{Float64} = zeros(6,6)           # Acts on data vector, generally the identity (e.g. full info on all positions/velocities)
 
-    Q::Matrix{Float64} = zeros(6,6)           # Covariance matrix for unknown (random) forcing 
-    R::Matrix{Float64} = zeros(6,6)           # Covariance matrix for noise in data 
+    Q::Matrix{Float64} = zeros(6,6)           # Covariance matrix for unknown (random) forcing
+    Q_inv::Float64
+    R::Matrix{Float64} = zeros(6,6)           # Covariance matrix for noise in data
+    R_inv::Matrix{Float64}                    # Inverse of operator R
 
     K::Matrix{Float64} = zeros(6,6)           # Placeholder for Kalman gain matrix 
     Kc::Matrix{Float64} = zeros(6,6)     

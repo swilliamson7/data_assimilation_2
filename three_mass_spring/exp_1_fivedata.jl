@@ -14,7 +14,7 @@ function exp_1_fivedata()
     params_true = mso_params(T = T,
     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     u = u,
-    n = 0.05 .* randn(6, T+1), 
+    n = 0.05 .* randn(6, T+1),
     q = q_true,
     data_steps = data_steps,
     data = zeros(1,1),
@@ -64,6 +64,8 @@ function exp_1_fivedata()
         ops
     )
 
+    ### not using Enzyme for entire derivative
+
     # params_adjoint = mso_params(T=T, 
     # x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     # u = 0.0 .* u,
@@ -75,51 +77,45 @@ function exp_1_fivedata()
     # energy = zeros(3, T+1)
     # )
 
-    # grad_descent(100, params_adjoint, ops)
+    # grad_descent(1, params_adjoint, ops)
 
     # params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     # params_adjoint.states .= zeros(6, T+1)
 
-    # adjoint_variables = run_adjoint(params_adjoint, 
+    # _ = run_adjoint(params_adjoint, 
     #     ops
     # )
 
-    params_adjoint = mso_params_ops(T=T, 
+    # with Enzyme
+    diag = 1 / ops.Q[1,1]
+    Q_inv = diag
+    R_inv = ops.R^(-1)
+    params_adjoint = mso_params_ops(T=T,
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = 0.0 .* u,
-        n = 0.001 .* randn(6, T+1), 
+        n = 0.001 .* randn(6, T+1),
         q = q_kf,
+        J = 0.0,
         data_steps = data_steps,
         data = states_noisy,
         states = zeros(6, T+1),
-        energy = zeros(3, T+1), 
+        energy = zeros(3, T+1),
         A = ops.A,
-        B = ops.B, 
-        Gamma = ops.Gamma, 
-        E = ops.E, 
-        Q = ops.Q, 
+        B = ops.B,
+        Gamma = ops.Gamma,
+        E = ops.E,
+        Q = ops.Q,
+        Q_inv = Q_inv,
         R = ops.R,
+        R_inv = R_inv,
         K = ops.K,
         Kc = ops.Kc
     )
-    
-    dparams = deepcopy(params_adjoint)
 
-    autodiff(Reverse, integrate, Duplicated(params_adjoint, dparams))
+    dparams_adjoint = grad_descent(100, params_adjoint, [1.,0.,0.,0.,0.,0.])
 
-    # snaps = 1 
-    # verbose = 1 
-    # revolve = Revolve{mso_params_ops}(params_adjoint.T, snaps; verbose=verbose)
-
-    # dparams = Zygote.gradient(
-    #     cp_adjoint, 
-    #     params_adjoint,
-    #     revolve,
-    #     q_kf
-    # )
-    
-    ### plots for exp 1 
+    ## plots for exp 1 
 
     # plot of the position of mass one 
     mass_1_pos = plot(params_true.states[1,:],
@@ -197,48 +193,51 @@ end
 
 #### checking the derivative returned by Enzyme 
 
-Q_inv = 1/ops.Q[1,1]
-for_checking = 0.0
-for j in data_steps 
+# for_checking = 0.0
+# for j in data_steps 
 
-    for_checking = for_checking + (params_adjoint.states[:,j] - states_noisy[:,j])' * ops.R^(-1) *
-                    (params_adjoint.states[:,j] - states_noisy[:,j]) #+ params_adjoint.u[:,j]' * Q_inv * params_adjoint.u[:,j]
+#     for_checking = for_checking + (params_adjoint.states[:,j] - states_noisy[:,j])' * R_inv *
+#                     (params_adjoint.states[:,j] - states_noisy[:,j]) + params_adjoint.u[:,j]' * Q_inv * params_adjoint.u[:,j]
                    
 
-end
+# end
 
-steps = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10]
-diffs = []
-params_fc = mso_params(T=T, 
-x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-u = 0.0 .* u,
-n = 0.001 .* randn(6, T+1), 
-q = q_kf,
-data_steps = data_steps,
-data = states_noisy,
-states = zeros(6, T+1),
-energy = zeros(3, T+1)
-)
-for s in steps 
+# steps = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10]
+# diffs = []
+# params_fc = mso_params(T=T, 
+# x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+# u = 0.0 .* u,
+# n = 0.001 .* randn(6, T+1), 
+# q = q_kf,
+# data_steps = data_steps,
+# data = states_noisy,
+# states = zeros(6, T+1),
+# energy = zeros(3, T+1)
+# )
+# for s in steps
 
-    params_fc.x .= [1.0; 0.0; 0.0; 0.0; 0.0; 0.0] + [s; 0.; 0.; 0.; 0.; 0.]
+#     params_fc.x .= [1.0;0.0;0.0;0.0;0.0;0.0]
+#     params_fc.u[:,2499] .= zeros(6,1)
+#     params_fc.u[:,2499] = params_fc.u[:,2499] + [s; 0.; 0.; 0.; 0.; 0.]
 
-    total_cost = 0.0 
-    temp = 0.0 
-    for j = 2:T+1
+#     total_cost = 0.0
+#     temp = 0.0
+#     for j = 2:T+1
 
-        params_fc.x .= ops.A * params_fc.x + ops.B * [params_fc.q(temp); 0.; 0.; 0.; 0.; 0.] 
+#         params_fc.x .= ops.A * params_fc.x + ops.B * [params_fc.q(temp); 0.; 0.; 0.; 0.; 0.] + ops.Gamma * params_fc.u[:, j-1]
 
-        if j in data_steps 
-            total_cost += (params_fc.x - states_noisy[:,j])' * ops.R^(-1) * (params_fc.x - states_noisy[:,j])
-        end
 
-        temp += params_fc.dt
-        
-    end  
+#         if j in data_steps 
+#             total_cost = total_cost + (params_fc.x - states_noisy[:,j])' * ops.R^(-1) * (params_fc.x - states_noisy[:,j]) 
+#             + params_fc.u[:,j]' * (1/ops.Q[1,1]) * params_fc.u[:,j]
+#         end
 
-    @show total_cost
+#         temp += params_fc.dt
 
-    push!(diffs, (total_cost - for_checking)/s)
+#     end
 
-end
+#     @show total_cost
+
+#     push!(diffs, (total_cost - for_checking)/s)
+
+# end

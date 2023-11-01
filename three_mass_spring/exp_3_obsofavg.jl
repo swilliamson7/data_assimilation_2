@@ -1,14 +1,3 @@
-# using Plots, Enzyme, LinearAlgebra, Statistics, Random
-# using Parameters, UnPack
-
-# include("misc_functions.jl")
-# include("structs.jl")
-# include("kalman_filter.jl")
-# include("adjoint.jl")
-
-# # Chosen random seed 649, will be used for all experiments 
-# Random.seed!(649)
-
 function exp_3_obsofavg()
 
     # Parameter choices 
@@ -18,7 +7,7 @@ function exp_3_obsofavg()
     q_kf(t) = 0.5 * q_true(t)                                           # forcing seen by KF (and adjoint)
     data_steps1 = [k for k in 2500:300:7000]
     data_steps2 = [k for k in 7300:150:T]
-    data_steps = [data_steps1; data_steps2; T]       # steps where data will be assimilated
+    data_steps = [data_steps1; data_steps2]     # steps where data will be assimilated
 
     rand_forcing = 0.1 .* randn(T+1)
     u = zeros(6, T+1)
@@ -27,8 +16,7 @@ function exp_3_obsofavg()
     params_true = mso_params(T = T,
     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     u = u,
-    n = 0.01 .* randn(6, T+1), 
-    # n = 0.05 .* randn(6, T+1), 
+    n = 0.01 .* randn(6, T+1),  
     q = q_true,
     data_steps = data_steps,
     data = zeros(1,1),
@@ -85,7 +73,28 @@ function exp_3_obsofavg()
         ops
     )
 
-    params_adjoint = mso_params(T=T, 
+    # params_adjoint = mso_params(T=T, 
+    # x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    # u = 0.0 .* u,
+    # n = 0.0 .* randn(6, T+1), 
+    # q = q_kf,
+    # data_steps = data_steps,
+    # data = states_noisy,
+    # states = zeros(6, T+1),
+    # energy = zeros(3, T+1)
+    # )
+
+    # grad_descent(100, params_adjoint, ops)
+
+    # params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # params_adjoint.states .= zeros(6, T+1)
+
+    # _ = run_adjoint(params_adjoint,
+    #     ops
+    # )
+
+    params_adjoint = mso_params_ops(T=T, 
+    t = 0,
     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     u = 0.0 .* u,
     n = 0.0 .* randn(6, T+1), 
@@ -93,17 +102,18 @@ function exp_3_obsofavg()
     data_steps = data_steps,
     data = states_noisy,
     states = zeros(6, T+1),
-    energy = zeros(3, T+1)
+    energy = zeros(3, T+1), 
+    A = ops.A,
+    B = ops.B, 
+    Gamma = ops.Gamma, 
+    E = ops.E, 
+    Q = ops.Q, 
+    R = ops.R,
+    K = ops.K,
+    Kc = ops.Kc
     )
 
-    grad_descent(100, params_adjoint, ops)
-
-    params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    params_adjoint.states .= zeros(6, T+1)
-
-    _ = run_adjoint(params_adjoint, 
-        ops
-    )
+    grad_descent(100, params_adjoint, params_adjoint.x)
 
     # creating plots for second experiment  
     # plot of the position of mass one 
@@ -129,18 +139,19 @@ function exp_3_obsofavg()
     )
     yaxis!("Position")
 
-    # plot of the energy 
-    energy = plot(params_true.energy[3,:], 
-        label = L"\varepsilon(t)"
+    # plot of the velocity of mass one 
+    mass_1_vel = plot(params_true.states[4,:],
+    label = L"x_4(t)"
     )
-    plot!(params_pred.energy[3,:],
-    label = L"\tilde{\varepsilon}(t, -)")
-    plot!(params_kf.energy[3,:], 
-        label = L"\tilde{\varepsilon}(t)",
+    plot!(params_pred.states[4,:],
+    label = L"\tilde{x}_4(t, -)"
+    )
+    plot!(params_kf.states[4,:],
+        label = L"\tilde{x}_4(t)",
         ls=:dash
     )
-    plot!(params_adjoint.energy[3,:], 
-        label = L"\tilde{\varepsilon}(t, +)",
+    plot!(params_adjoint.states[4,:],
+        label = L"\tilde{x}_4(t, +)",
         ls=:dashdot
     )
     vline!(data_steps, 
@@ -149,14 +160,35 @@ function exp_3_obsofavg()
     lc=:red,
     lw=0.5
     )
-    yaxis!("Energy")
+    yaxis!("Velocity")
 
-    # plot of differences in estimates vs. truth 
-    energy_diffs = plot(abs.(params_true.energy[3,:] - params_kf.energy[3,:]),
-        label = L"\varepsilon(t) - \tilde{\varepsilon}(t)"
+    # plot of the energy 
+    # energy = plot(params_true.energy[3,:], 
+    #     label = L"\varepsilon(t)"
+    # )
+    # plot!(params_pred.energy[3,:],
+    # label = L"\tilde{\varepsilon}(t, -)")
+    # plot!(params_kf.energy[3,:], 
+    #     label = L"\tilde{\varepsilon}(t)",
+    #     ls=:dash
+    # )
+    # plot!(params_adjoint.energy[3,:], 
+    #     label = L"\tilde{\varepsilon}(t, +)",
+    #     ls=:dashdot
+    # )
+    # vline!(data_steps, 
+    # label = "",
+    # ls=:dot,
+    # lc=:red,
+    # lw=0.5
+    # )
+    # yaxis!("Energy")
+
+    pos_diffs = plot(abs.(params_true.states[1,:] - params_kf.states[1,:]),
+        label = L"|x_1(t) - \tilde{x_1}(t)|"
     )
-    plot!(abs.(params_true.energy[3,:] - params_adjoint.energy[3,:]),
-        label = L"\varepsilon(t) - \tilde{\varepsilon}(t, +)",
+    plot!(abs.(params_true.states[1,:] - params_adjoint.states[1,:]),
+        label = L"|x_1(t) - \tilde{x_1}(t, +)|",
         ls=:dash
     )
     vline!(data_steps, 
@@ -165,15 +197,48 @@ function exp_3_obsofavg()
     lc=:red,
     lw=0.5
     )
-    yaxis!("Energy")
+    yaxis!("Position")
     xaxis!("Timestep")
 
-    plot(mass_1_pos, energy, energy_diffs, 
-        layout = (3,1), 
+    vel_diffs = plot(abs.(params_true.states[4,:] - params_kf.states[4,:]),
+    label = L"|x_4(t) - \tilde{x_4}(t)|"
+    )
+    plot!(abs.(params_true.states[4,:] - params_adjoint.states[4,:]),
+        label = L"|x_4(t) - \tilde{x_4}(t, +)|",
+        ls=:dash
+    )
+    vline!(data_steps, 
+    label = "",
+    ls=:dot,
+    lc=:red,
+    lw=0.5
+    )
+    yaxis!("Velocity")
+    xaxis!("Timestep")
+
+    # plot of differences in estimates vs. truth 
+    # energy_diffs = plot(abs.(params_true.energy[3,:] - params_kf.energy[3,:]),
+    #     label = L"\varepsilon(t) - \tilde{\varepsilon}(t)"
+    # )
+    # plot!(abs.(params_true.energy[3,:] - params_adjoint.energy[3,:]),
+    #     label = L"\varepsilon(t) - \tilde{\varepsilon}(t, +)",
+    #     ls=:dash
+    # )
+    # vline!(data_steps, 
+    # label = "",
+    # ls=:dot,
+    # lc=:red,
+    # lw=0.5
+    # )
+    # yaxis!("Energy")
+    # xaxis!("Timestep")
+
+    plot(mass_1_pos, mass_1_vel, pos_diffs, vel_diffs, 
+        layout = (4,1), 
         fmt = :png,
         dpi = 300, 
         legend = :outerright
-)
+    )
 
 end
 

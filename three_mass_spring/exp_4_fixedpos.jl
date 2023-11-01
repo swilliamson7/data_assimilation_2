@@ -25,7 +25,7 @@ function create_data1(params, ops)
 
         x[:] = A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, j]
 
-        x[2] = 2.0
+        x[2] = 3.0
         x[5] = 0.0
 
         states[:, j] .= copy(x)
@@ -49,7 +49,7 @@ function exp_4_fixedpos(;optm_steps = 100)
     r = 0.5               # spring coefficient 
     q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function 
     q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
-    data_steps1 = [k for k in 3000:100:7000]         # steps where data will be assimilated
+    data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
     # data_steps2 = [k for k in 7200:100:9000]
     # data_steps = [data_steps1;data_steps2]
     data_steps = data_steps1
@@ -61,7 +61,7 @@ function exp_4_fixedpos(;optm_steps = 100)
     u[1, :] .= rand_forcing
 
     params_true = mso_params(T = T,
-    x = [1.0, 2.0, 0.0, 0.0, 0.0, 0.0],
+    x = [1.0, 3.0, 0.0, 0.0, 0.0, 0.0],
     u = u,
     n = 0.05 .* randn(6, T+1), 
     q = q_true,
@@ -72,7 +72,7 @@ function exp_4_fixedpos(;optm_steps = 100)
     )
 
     params_pred = mso_params(T = T,
-    x = [1.0, 2.0, 0.0, 0.0, 0.0, 0.0],
+    x = [1.0, 3.0, 0.0, 0.0, 0.0, 0.0],
     q = q_kf, 
     data_steps = data_steps,
     data = zeros(1,1),
@@ -97,9 +97,9 @@ function exp_4_fixedpos(;optm_steps = 100)
     states_noisy = create_data1(params_true, ops)
 
     params_kf = mso_params(T=T, 
-    x = [1.0, 2.0, 0.0, 0.0, 0.0, 0.0],
+    x = [1.0, 3.0, 0.0, 0.0, 0.0, 0.0],
     u = 0.0 .* u,
-    n = 0.001 .* randn(6, T+1), 
+    n = zeros(1,1), 
     q = q_kf,
     data_steps = data_steps,
     data = states_noisy,
@@ -108,16 +108,14 @@ function exp_4_fixedpos(;optm_steps = 100)
     )
 
     uncertainty = run_kalman_filter(
-        params_kf, 
+        params_kf,
         ops
     )
 
-    # return params_kf, states_noisy, data_steps
-
     params_adjoint = mso_params(T=T, 
-    x = [1.0, 2.0, 0.0, 0.0, 0.0, 0.0],
+    x = [1.0, 3.0, 0.0, 0.0, 0.0, 0.0],
     u = 0.0 .* u,
-    n = 0.001 .* randn(6, T+1), 
+    n = zeros(1,1), 
     q = q_kf,
     data_steps = data_steps,
     data = states_noisy,
@@ -134,6 +132,28 @@ function exp_4_fixedpos(;optm_steps = 100)
         ops
     )
 
+    # params_adjoint2 = mso_params_ops(T=T, 
+    # t = 0,
+    # x = [1.0, 3.0, 0.0, 0.0, 0.0, 0.0],
+    # u = 0.0 .* u,
+    # n = 0.0 .* randn(6, T+1), 
+    # q = q_kf,
+    # data_steps = data_steps,
+    # data = states_noisy,
+    # states = zeros(6, T+1),
+    # energy = zeros(3, T+1), 
+    # A = ops.A,
+    # B = ops.B, 
+    # Gamma = ops.Gamma, 
+    # E = ops.E, 
+    # Q = ops.Q, 
+    # R = ops.R,
+    # K = ops.K,
+    # Kc = ops.Kc
+    # )
+
+    # grad_descent(100, params_adjoint, params_adjoint.x)
+
     # plot of fixed displacement 
     fixed_pos = plot(params_true.states[2,:],
     label = L"x_2(t)"
@@ -141,8 +161,14 @@ function exp_4_fixedpos(;optm_steps = 100)
     # plot!(params_pred.states[2, :],
     # label = L"\tilde{x}_2(t, -)"
     # )
-    plot!(params_kf.states[2,:], ribbon = uncertainty[2, :], ls=:dash,
-    label = L"\tilde{x}_2(t)")
+    # for uncertainty ribbon 
+    to_plot1 = []
+    to_plot2 = []
+    for j = 1:T+1 
+        push!(to_plot1, sqrt(uncertainty[j][2,2]))
+        push!(to_plot2, sqrt(uncertainty[j][5,5]))
+    end
+    plot!(params_kf.states[2,:], ribbon = to_plot1, ls=:dash, label = L"\tilde{x}_2(t)")
     
     plot!(params_adjoint.states[2,:], ls=:dashdot,
     label = L"\tilde{x}_2(t, +)")
@@ -160,8 +186,7 @@ function exp_4_fixedpos(;optm_steps = 100)
     # plot!(params_pred.states[5, :],
     # label = L"\tilde{x}_5(t, -)"
     # )
-    plot!(params_kf.states[5,:], ls=:dash,
-    label = L"\tilde{x}_5(t)")
+    plot!(params_kf.states[5,:], ls=:dash, label = L"\tilde{x}_5(t)", ribbon = to_plot2)
     plot!(params_adjoint.states[5,:], ls=:dashdot,
     label = L"\tilde{x}_5(t, +)")
     vline!(data_steps, 
@@ -171,6 +196,20 @@ function exp_4_fixedpos(;optm_steps = 100)
     lw=0.5
     )
     ylabel!("Velocity")
+
+    # plot of energy 
+    energy = plot(params_true.energy[3,:],
+    label=L"\varepsilon(t)")
+    plot!(params_pred.energy[3,:], label=L"\tilde{\varepsilon}(t,-)")
+    plot!(params_kf.energy[3,:], ls=:dash, label=L"\tilde{\varepsilon}(t)")
+    plot!(params_adjoint.energy[3,:], ls=:dashdot, label=L"\tilde{\varepsilon}(t,+)")
+    vline!(data_steps, 
+    label = "",
+    ls=:dot,
+    lc=:red,
+    lw=0.5
+    )
+    ylabel!("Energy")
 
     # plot of differences 
     diffs = plot(abs.(params_true.states[2,:] - params_kf.states[2,:]),
@@ -182,8 +221,8 @@ function exp_4_fixedpos(;optm_steps = 100)
     ylabel!("Position")
     xlabel!("Timestep")
 
-    plot(fixed_pos, fixed_vel, diffs, 
-    layout = (3,1), 
+    plot(fixed_pos, fixed_vel, energy, diffs, 
+    layout = (4,1), 
     fmt = :png,
     dpi = 300, 
     legend = :outerright)
