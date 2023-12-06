@@ -77,7 +77,7 @@ function exp_1_fivedata()
     # energy = zeros(3, T+1)
     # )
 
-    # grad_descent(1, params_adjoint, ops)
+    # grad_descent(100, params_adjoint, ops)
 
     # params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     # params_adjoint.states .= zeros(6, T+1)

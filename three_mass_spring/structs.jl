@@ -38,12 +38,12 @@ end
     u::Matrix{Float64} = zeros(6, T+1)   # random forcing (if any), otherwise just leave zero 
     n::Matrix{Float64} = zeros(6, T+1)   # placeholder for noise to add to the data 
 
-    k::Int = 30          # spring constant
-    r::Float64 = 0.5     # Rayleigh friction coefficient
+    k::Float64 = 30          # spring constant
+    r::Float64 = 0.5         # Rayleigh friction coefficient
 
-    q::F                 # forcing function 
+    q::F                     # forcing function 
 
-    J::Float64 = 0.0     # cost function evaluation 
+    J::Float64 = 0.0         # cost function evaluation 
 
     data_steps::Vector{Int64}  # the timesteps where data points exist 
     data::Matrix{Float64}

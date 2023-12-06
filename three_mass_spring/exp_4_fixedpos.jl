@@ -1,14 +1,3 @@
-# using Plots, Enzyme, LinearAlgebra, Statistics, Random
-# using Parameters, UnPack
-
-# include("misc_functions.jl")
-# include("structs.jl")
-# include("kalman_filter.jl")
-# include("adjoint.jl")
-
-# # Chosen random seed 649, will be used for all experiments 
-# Random.seed!(649)
-
 function create_data1(params, ops)
 
     @unpack T, x, u, n, q, dt, states, energy = params

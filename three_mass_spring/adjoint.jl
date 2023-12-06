@@ -168,7 +168,7 @@ function grad_descent(M, params::mso_params_ops, x0::Vector{Float64})
     autodiff(Reverse, integrate, Duplicated(params, dparams))
 
     for t = 1:T 
-            
+
         u_new[:, t] = params.u[:, t] - 1 / (norm(dparams.u[1,:])) * dparams.u[:, t]
 
     end

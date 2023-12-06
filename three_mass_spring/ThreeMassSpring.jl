@@ -17,5 +17,6 @@ include("exp_1ish_consitentdata.jl")
 include("exp_2_multdata.jl")
 include("exp_3_obsofavg.jl")
 include("exp_4_fixedpos.jl")
+include("exp_5_param.jl")
 
 end
