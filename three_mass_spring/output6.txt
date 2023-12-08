@@ -1,0 +1,37 @@
+ERROR: LoadError: UndefVarError: `RT` not defined
+Stacktrace:
+ [1] make_zero (repeats 2 times)
+   @ Main.ThreeMassSpring ~/Documents/GitHub/data_assimilation_2/three_mass_spring/Enzyme.jl/src/compiler.jl:1219 [inlined]
+ [2] enzyme_check_param(; k_guess::Float64)
+   @ Main.ThreeMassSpring ~/Documents/GitHub/data_assimilation_2/three_mass_spring/exp_5_param.jl:424
+ [3] enzyme_check_param()
+   @ Main.ThreeMassSpring ~/Documents/GitHub/data_assimilation_2/three_mass_spring/exp_5_param.jl:340
+ [4] top-level scope
+   @ ~/Documents/GitHub/data_assimilation_2/three_mass_spring/debugging3.jl:4
+in expression starting at /Users/swilliamson/Documents/GitHub/data_assimilation_2/three_mass_spring/debugging3.jl:4
+params_adjoint2 = Main.ThreeMassSpring.mso_params_ops{Main.ThreeMassSpring.var"#q_kf#36"{Main.ThreeMassSpring.var"#q_true#35"}}
+  T: Int64 10000
+  t: Int64 0
+  dt: Float64 0.001
+  x: Array{Float64}((6,)) [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  u: Array{Float64}((6, 10001)) [0.053789363540378256 -0.034477948177364076 … -0.14986767532029263 0.20624645389996643; 0.0 0.0 … 0.0 0.0; … ; 0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0]
+  n: Array{Float64}((6, 10001)) [0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0; … ; 0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0]
+  k: Float64 20.0
+  r: Float64 0.5
+  q: q_kf (function of type Main.ThreeMassSpring.var"#q_kf#36"{Main.ThreeMassSpring.var"#q_true#35"})
+  J: Float64 0.0
+  data_steps: Array{Int64}((21,)) [3000, 3200, 3400, 3600, 3800, 4000, 4200, 4400, 4600, 4800  …  5200, 5400, 5600, 5800, 6000, 6200, 6400, 6600, 6800, 7000]
+  data: Array{Float64}((6, 10001)) [0.99990874916679 1.153662067810838 … -0.9571195397042735 -1.100676445843749; -3.174525549058001e-5 1.9232965189829104e-5 … 0.7732345424757039 0.7719635416570036; … ; -0.0001260456441650153 0.020048621447258965 … -1.2843958254226309 -1.3063042728740202; -0.00012361397362475215 -8.813508269354106e-5 … 1.395158739478939 1.323931700479082]
+  states: Array{Float64}((6, 10001)) [0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0; … ; 0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0]
+  energy: Array{Float64}((3, 10001)) [0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0]
+  A: Array{Float64}((6, 6)) [1.0 0.0 … 0.0 0.0; 0.0 1.0 … 0.001 0.0; … ; 0.02 -0.06 … 0.9995 0.0; 0.0 0.02 … 0.0 0.9995]
+  B: Array{Float64}((6, 6)) [1.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0; … ; 0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0]
+  Gamma: Array{Float64}((6, 6)) [1.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0; … ; 0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0]
+  E: Array{Float64}((6, 6)) [1.0 0.0 … 0.0 0.0; 0.0 1.0 … 0.0 0.0; … ; 0.0 0.0 … 1.0 0.0; 0.0 0.0 … 0.0 1.0]
+  Q: Array{Float64}((6, 6)) [0.001653213969959386 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0; … ; 0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0]
+  Q_inv: Float64 0.0
+  R: Array{Float64}((6, 6)) [1.0009134387242822e-8 0.0 … 0.0 0.0; 0.0 1.0009134387242822e-8 … 0.0 0.0; … ; 0.0 0.0 … 1.0009134387242822e-8 0.0; 0.0 0.0 … 0.0 1.0009134387242822e-8]
+  R_inv: Array{Float64}((6, 6)) [9.990873948845702e7 0.0 … 0.0 0.0; 0.0 9.990873948845702e7 … 0.0 0.0; … ; 0.0 0.0 … 9.990873948845702e7 0.0; 0.0 0.0 … 0.0 9.990873948845702e7]
+  K: Array{Float64}((6, 6)) [0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0; … ; 0.0 0.0 … 0.0 0.0; 0.0 0.0 … 0.0 0.0]
+  Kc: Array{Float64}((3, 3)) [-40.0 20.0 0.0; 20.0 -60.0 20.0; 0.0 20.0 -40.0]
+

@@ -1,6 +1,9 @@
 [deps]
 Checkpointing = "eb46d486-4f9c-4c3d-b445-a617f2a2f1ca"
 Enzyme = "7da242da-08ed-463a-9acd-ee780be4f1d9"
+EnzymeCore = "f151be2c-9106-41f4-ab19-57ee4f262869"
+InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+LLVM = "929cbde3-209d-540e-8aea-75f648917ca0"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Optim = "429524aa-4258-5aef-a3af-852621145aeb"

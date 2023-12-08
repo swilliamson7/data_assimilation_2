@@ -1,0 +1,71 @@
+ERROR: LoadError: syntax: all-underscore identifier used as rvalue around /Users/swilliamson/Documents/GitHub/data_assimilation_2/three_mass_spring/Enzyme.jl/src/compiler.jl:1219
+Stacktrace:
+ [1] top-level scope
+   @ ~/Documents/GitHub/data_assimilation_2/three_mass_spring/Enzyme.jl/src/compiler.jl:1218
+ [2] include(mod::Module, _path::String)
+   @ Base ./Base.jl:489
+ [3] include(x::String)
+   @ Enzyme ~/Documents/GitHub/data_assimilation_2/three_mass_spring/Enzyme.jl/src/Enzyme.jl:1
+ [4] top-level scope
+   @ ~/Documents/GitHub/data_assimilation_2/three_mass_spring/Enzyme.jl/src/Enzyme.jl:46
+ [5] include
+   @ Base ./Base.jl:489 [inlined]
+ [6] include_package_for_output(pkg::Base.PkgId, input::String, depot_path::Vector{String}, dl_load_path::Vector{String}, load_path::Vector{String}, concrete_deps::Vector{Pair{Base.PkgId, UInt128}}, source::String)
+   @ Base ./loading.jl:2216
+ [7] top-level scope
+   @ stdin:3
+in expression starting at /Users/swilliamson/Documents/GitHub/data_assimilation_2/three_mass_spring/Enzyme.jl/src/compiler.jl:1
+in expression starting at /Users/swilliamson/Documents/GitHub/data_assimilation_2/three_mass_spring/Enzyme.jl/src/Enzyme.jl:1
+in expression starting at stdin:3
+ERROR: LoadError: Failed to precompile Enzyme [7da242da-08ed-463a-9acd-ee780be4f1d9] to "/Users/swilliamson/.julia/compiled/v1.10/Enzyme/jl_iHUOAP".
+Stacktrace:
+  [1] error(s::String)
+    @ Base ./error.jl:35
+  [2] compilecache(pkg::Base.PkgId, path::String, internal_stderr::IO, internal_stdout::IO, keep_loaded_modules::Bool)
+    @ Base ./loading.jl:2468
+  [3] compilecache
+    @ Base ./loading.jl:2334 [inlined]
+  [4] (::Base.var"#967#968"{Base.PkgId})()
+    @ Base ./loading.jl:1968
+  [5] mkpidlock(f::Base.var"#967#968"{Base.PkgId}, at::String, pid::Int32; kwopts::@Kwargs{stale_age::Int64, wait::Bool})
+    @ FileWatching.Pidfile /Applications/Julia-1.10.app/Contents/Resources/julia/share/julia/stdlib/v1.10/FileWatching/src/pidfile.jl:92
+  [6] #mkpidlock#6
+    @ FileWatching.Pidfile /Applications/Julia-1.10.app/Contents/Resources/julia/share/julia/stdlib/v1.10/FileWatching/src/pidfile.jl:87 [inlined]
+  [7] trymkpidlock(::Function, ::Vararg{Any}; kwargs::@Kwargs{stale_age::Int64})
+    @ FileWatching.Pidfile /Applications/Julia-1.10.app/Contents/Resources/julia/share/julia/stdlib/v1.10/FileWatching/src/pidfile.jl:110
+  [8] #invokelatest#2
+    @ Base ./essentials.jl:889 [inlined]
+  [9] invokelatest
+    @ Base ./essentials.jl:884 [inlined]
+ [10] maybe_cachefile_lock(f::Base.var"#967#968"{Base.PkgId}, pkg::Base.PkgId, srcpath::String; stale_age::Int64)
+    @ Base ./loading.jl:2978
+ [11] maybe_cachefile_lock
+    @ Base ./loading.jl:2975 [inlined]
+ [12] _require(pkg::Base.PkgId, env::String)
+    @ Base ./loading.jl:1964
+ [13] __require_prelocked(uuidkey::Base.PkgId, env::String)
+    @ Base ./loading.jl:1806
+ [14] #invoke_in_world#3
+    @ Base ./essentials.jl:921 [inlined]
+ [15] invoke_in_world
+    @ Base ./essentials.jl:918 [inlined]
+ [16] _require_prelocked(uuidkey::Base.PkgId, env::String)
+    @ Base ./loading.jl:1797
+ [17] macro expansion
+    @ Base ./loading.jl:1784 [inlined]
+ [18] macro expansion
+    @ Base ./lock.jl:267 [inlined]
+ [19] __require(into::Module, mod::Symbol)
+    @ Base ./loading.jl:1747
+ [20] #invoke_in_world#3
+    @ Base ./essentials.jl:921 [inlined]
+ [21] invoke_in_world
+    @ Base ./essentials.jl:918 [inlined]
+ [22] require(into::Module, mod::Symbol)
+    @ Base ./loading.jl:1740
+ [23] include(fname::String)
+    @ Base.MainInclude ./client.jl:489
+ [24] top-level scope
+    @ ~/Documents/GitHub/data_assimilation_2/three_mass_spring/debugging3.jl:1
+in expression starting at /Users/swilliamson/Documents/GitHub/data_assimilation_2/three_mass_spring/ThreeMassSpring.jl:1
+in expression starting at /Users/swilliamson/Documents/GitHub/data_assimilation_2/three_mass_spring/debugging3.jl:1

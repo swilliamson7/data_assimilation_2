@@ -3,6 +3,7 @@ function integrate1(mso_struct::mso_params_ops)
     @unpack B, Gamma, E, R, R_inv, Kc, Q, Q_inv = mso_struct
     @unpack r = mso_struct
     @unpack T, x, u, dt, states, data, energy, q =  mso_struct
+    dt = dt::Float64
     @unpack data_steps, J = mso_struct
 
     k = mso_struct.k
@@ -32,7 +33,7 @@ function integrate1(mso_struct::mso_params_ops)
     temp = 0.0
     for t = 2:T+1
 
-        x .= A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, t-1]
+        x .= A * x + B * [q(temp::Float64); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, t-1]
         states[:, t] .= copy(x)
 
         temp += dt
@@ -88,6 +89,9 @@ function grad_descent1(M, params::mso_params_ops, x0::Vector{Float64})
 
     dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
     dparams.J = 1.0
+    dparams.k = 0.
+    dparams.r = 0.
+    dparams.dt = 0.
     @show dparams.k
 
     autodiff(Reverse, integrate1, Duplicated(params, dparams))
@@ -96,7 +100,8 @@ function grad_descent1(M, params::mso_params_ops, x0::Vector{Float64})
         return
     end
 
-    k_new = params.k - (1 / norm(dparams.k)) * dparams.k
+    gamma = 1e-1
+    k_new = params.k - gamma * dparams.k #* (1 / norm(dparams.k)) * dparams.k
 
     @show k_new
 
@@ -105,17 +110,20 @@ function grad_descent1(M, params::mso_params_ops, x0::Vector{Float64})
     k_grad_old = copy(dparams.k)
     params.k = k_new
 
-    while norm(k_grad_old) > 1e-7
+    while abs(params.k - k_old) > 10
 
         params.x .= x0
         params.states .= zeros(6, T+1)
 
         dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
         dparams.J = 1.0
+        dparams.k = 0.
+        dparams.r = 0.
+        dparams.dt = 0.
 
         autodiff(Reverse, integrate1, Duplicated(params, dparams))
 
-        @show norm(dparams.k)
+        @show dparams.k
         @show params.k
 
         gamma = 0.0
@@ -126,14 +134,13 @@ function grad_descent1(M, params::mso_params_ops, x0::Vector{Float64})
         den = norm(dparams.k - k_grad_old)^2
 
         gamma = (abs(num) / den)
+        @show gamma
 
         k_new = params.k - gamma * dparams.k
 
         k_old = copy(params.k)
         k_grad_old = copy(dparams.k)
         params.k = k_new
-
-        dparams.k = 0.0
 
         j += 1
 
@@ -154,7 +161,7 @@ function exp_5_param(;optm_steps = 100,k_guess=20.)
     r = 0.5               # spring coefficient 
     q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function 
     q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
-    data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
+    data_steps1 = [k for k in 1:T]         # steps where data will be assimilated
     # data_steps2 = [k for k in 7200:100:9000]
     # data_steps = [data_steps1;data_steps2]
     data_steps = data_steps1
@@ -165,7 +172,7 @@ function exp_5_param(;optm_steps = 100,k_guess=20.)
     u[1, :] .= rand_forcing
 
     params_true = mso_params(T = T,
-    x = [1.0, 3.0, 0.0, 0.0, 0.0, 0.0],
+    x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     u = u,
     k = 30,
     n = 0.05 .* randn(6, T+1),
@@ -216,18 +223,19 @@ function exp_5_param(;optm_steps = 100,k_guess=20.)
     )
 
     uncertainty = run_kalman_filter(
-        params_kf,
-        ops
+    params_kf,
+    ops
     )
 
     diag = 0.0
     Q_inv = diag
     R_inv = ops.R^(-1)
+    # R_inv = zeros(6,6)
     params_adjoint = mso_params_ops(T=T,
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
-        n = 0.001 .* randn(6, T+1),
+        # n = 0.001 .* randn(6, T+1),
         q = q_kf,
         J = 0.0,
         k = k_guess,
@@ -251,79 +259,79 @@ function exp_5_param(;optm_steps = 100,k_guess=20.)
     # k, the spring coefficient parameter
     grad_descent1(100, params_adjoint, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-    # plot of fixed displacement
-    fixed_pos = plot(params_true.states[2,:],
-    label = L"x_2(t)"
-    )
-
-    # plot!(params_pred.states[2, :],
-    # label = L"\tilde{x}_2(t, -)"
+    # # plot of fixed displacement
+    # fixed_pos = plot(params_true.states[2,:],
+    # label = L"x_2(t)"
     # )
-    # for uncertainty ribbon 
-    to_plot1 = []
-    to_plot2 = []
-    for j = 1:T+1 
-        push!(to_plot1, sqrt(uncertainty[j][2,2]))
-        push!(to_plot2, sqrt(uncertainty[j][5,5]))
-    end
-    plot!(params_kf.states[2,:], ribbon = to_plot1, ls=:dash, label = L"\tilde{x}_2(t)")
+
+    # # plot!(params_pred.states[2, :],
+    # # label = L"\tilde{x}_2(t, -)"
+    # # )
+    # # for uncertainty ribbon 
+    # to_plot1 = []
+    # to_plot2 = []
+    # for j = 1:T+1 
+    #     push!(to_plot1, sqrt(uncertainty[j][2,2]))
+    #     push!(to_plot2, sqrt(uncertainty[j][5,5]))
+    # end
+    # plot!(params_kf.states[2,:], ribbon = to_plot1, ls=:dash, label = L"\tilde{x}_2(t)")
     
-    plot!(params_adjoint.states[2,:], ls=:dashdot,
-    label = L"\tilde{x}_2(t, +)")
-    vline!(data_steps, 
-    label = "",
-    ls=:dot,
-    lc=:red,
-    lw=0.5
-    )
-    ylabel!("Position")
-
-    # plot of fixed velocity 
-    fixed_vel = plot(params_true.states[5,:],
-    label = L"x_5(t)")
-    # plot!(params_pred.states[5, :],
-    # label = L"\tilde{x}_5(t, -)"
+    # plot!(params_adjoint.states[2,:], ls=:dashdot,
+    # label = L"\tilde{x}_2(t, +)")
+    # vline!(data_steps, 
+    # label = "",
+    # ls=:dot,
+    # lc=:red,
+    # lw=0.5
     # )
-    plot!(params_kf.states[5,:], ls=:dash, label = L"\tilde{x}_5(t)", ribbon = to_plot2)
-    plot!(params_adjoint.states[5,:], ls=:dashdot,
-    label = L"\tilde{x}_5(t, +)")
-    vline!(data_steps, 
-    label = "",
-    ls=:dot,
-    lc=:red,
-    lw=0.5
-    )
-    ylabel!("Velocity")
+    # ylabel!("Position")
 
-    # plot of energy 
-    energy = plot(params_true.energy[3,:],
-    label=L"\varepsilon(t)")
-    plot!(params_pred.energy[3,:], label=L"\tilde{\varepsilon}(t,-)")
-    plot!(params_kf.energy[3,:], ls=:dash, label=L"\tilde{\varepsilon}(t)")
-    plot!(params_adjoint.energy[3,:], ls=:dashdot, label=L"\tilde{\varepsilon}(t,+)")
-    vline!(data_steps, 
-    label = "",
-    ls=:dot,
-    lc=:red,
-    lw=0.5
-    )
-    ylabel!("Energy")
+    # # plot of fixed velocity 
+    # fixed_vel = plot(params_true.states[5,:],
+    # label = L"x_5(t)")
+    # # plot!(params_pred.states[5, :],
+    # # label = L"\tilde{x}_5(t, -)"
+    # # )
+    # plot!(params_kf.states[5,:], ls=:dash, label = L"\tilde{x}_5(t)", ribbon = to_plot2)
+    # plot!(params_adjoint.states[5,:], ls=:dashdot,
+    # label = L"\tilde{x}_5(t, +)")
+    # vline!(data_steps, 
+    # label = "",
+    # ls=:dot,
+    # lc=:red,
+    # lw=0.5
+    # )
+    # ylabel!("Velocity")
 
-    # plot of differences 
-    diffs = plot(abs.(params_true.states[2,:] - params_kf.states[2,:]),
-    label = L"|x_2(t) - \tilde{x}_2(t)|"
-    )
-    plot!(abs.(params_true.states[2, :] - params_adjoint.states[2,:]),
-    label = L"|x_2(t) - \tilde{x}_2(t, +)|"
-    )
-    ylabel!("Position")
-    xlabel!("Timestep")
+    # # plot of energy 
+    # energy = plot(params_true.energy[3,:],
+    # label=L"\varepsilon(t)")
+    # plot!(params_pred.energy[3,:], label=L"\tilde{\varepsilon}(t,-)")
+    # plot!(params_kf.energy[3,:], ls=:dash, label=L"\tilde{\varepsilon}(t)")
+    # plot!(params_adjoint.energy[3,:], ls=:dashdot, label=L"\tilde{\varepsilon}(t,+)")
+    # vline!(data_steps, 
+    # label = "",
+    # ls=:dot,
+    # lc=:red,
+    # lw=0.5
+    # )
+    # ylabel!("Energy")
 
-    plot(fixed_pos, fixed_vel, energy, diffs,
-    layout = (4,1),
-    fmt = :png,
-    dpi = 300,
-    legend = :outerright)
+    # # plot of differences 
+    # diffs = plot(abs.(params_true.states[2,:] - params_kf.states[2,:]),
+    # label = L"|x_2(t) - \tilde{x}_2(t)|"
+    # )
+    # plot!(abs.(params_true.states[2, :] - params_adjoint.states[2,:]),
+    # label = L"|x_2(t) - \tilde{x}_2(t, +)|"
+    # )
+    # ylabel!("Position")
+    # xlabel!("Timestep")
+
+    # plot(fixed_pos, fixed_vel, energy, diffs,
+    # layout = (4,1),
+    # fmt = :png,
+    # dpi = 300,
+    # legend = :outerright)
     
 
 end
@@ -332,32 +340,30 @@ end
 
 function enzyme_check_param(;k_guess=20.)
 
-     # Parameter choices
-     T = 10000             # Total number of steps to integrate
-     r = 0.5               # spring coefficient
-     q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function
-     q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
-     data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
-     # data_steps2 = [k for k in 7200:100:9000]
-     # data_steps = [data_steps1;data_steps2]
-     data_steps = data_steps1
-     # data_steps = [t for t in 1:T]
+    # Parameter choices
+    T = 10000             # Total number of steps to integrate
+    r = 0.5               # spring coefficient
+    @inline q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function
+    #  q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
+    @inline q_kf(t) = q_true(t)
+    data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
+    data_steps = data_steps1
  
-     rand_forcing = 0.1 .* randn(T+1)
-     u = zeros(6, T+1)
-     u[1, :] .= rand_forcing
+    rand_forcing = 0.1 .* randn(T+1)
+    u = zeros(6, T+1)
+    u[1, :] .= rand_forcing
  
-     params_true = mso_params(T = T,
-     x = [1.0, 3.0, 0.0, 0.0, 0.0, 0.0],
-     u = u,
-     k = 30,
-     n = 0.05 .* randn(6, T+1),
-     q = q_true,
-     data_steps = data_steps,
-     data = zeros(1,1),
-     states = zeros(6, T+1),
-     energy = zeros(3, T+1)
-     )
+    params_true = mso_params(T = T,
+    x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    u = u,
+    k = 30,
+    n = 0.0001 .* randn(6, T+1),
+    q = q_true,
+    data_steps = data_steps,
+    data = zeros(1,1),
+    states = zeros(6, T+1),
+    energy = zeros(3, T+1)
+    )
  
      params_pred = mso_params(T = T,
      x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -389,12 +395,13 @@ function enzyme_check_param(;k_guess=20.)
     diag = 0.0
     Q_inv = diag
     R_inv = ops.R^(-1)
+    # R_inv = diagm(ones(6))
 
+    # just Enzyme
     params_adjoint2 = mso_params_ops(T=T,
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
-        n = 0.001 .* randn(6, T+1),
         q = q_kf,
         J = 0.0,
         k = k_guess,
@@ -406,7 +413,7 @@ function enzyme_check_param(;k_guess=20.)
         B = ops.B,
         Gamma = ops.Gamma,
         E = ops.E,
-        Q = 0.0 .* ops.Q,
+        Q = ops.Q,
         Q_inv = Q_inv,
         R = ops.R,
         R_inv = R_inv,
@@ -414,16 +421,21 @@ function enzyme_check_param(;k_guess=20.)
         Kc = ops.Kc
     )
 
+    @show params_adjoint2
     dparams_adjoint2 = Enzyme.Compiler.make_zero(Core.Typeof(params_adjoint2), IdDict(), params_adjoint2)
-    dparams_adjoint2.J = 1.
+    @show dparams_adjoint2
+    dparams_adjoint2.J = 1.0
+    # dparams_adjoint2.k = 0.
+    # dparams_adjoint2.r = 0.
+    # dparams_adjoint2.dt = 0.
 
     autodiff(Reverse, integrate1, Duplicated(params_adjoint2, dparams_adjoint2))
 
+    # no Enzyme, manual cost function evaluation
     params_adjoint = mso_params_ops(T=T,
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
-        n = 0.001 .* randn(6, T+1),
         q = q_kf,
         J = 0.0,
         k = k_guess,
@@ -435,20 +447,20 @@ function enzyme_check_param(;k_guess=20.)
         B = ops.B,
         Gamma = ops.Gamma,
         E = ops.E,
-        Q = 0.0 .* ops.Q,
+        Q = ops.Q,
         Q_inv = Q_inv,
         R = ops.R,
         R_inv = R_inv,
         K = ops.K,
         Kc = ops.Kc
-     )
+    )
 
     integrate1(params_adjoint)
 
     for_checking = 0.0
     for j in data_steps
 
-        for_checking = for_checking + (params_adjoint.states[:,j] - states_noisy[:,j])' * params_adjoint.R_inv * (params_adjoint.states[:,j] - states_noisy[:,j])
+        for_checking = for_checking + (params_adjoint.states[:,j] - states_noisy[:,j])' * R_inv * (params_adjoint.states[:,j] - states_noisy[:,j])
 
     end
 
@@ -458,7 +470,6 @@ function enzyme_check_param(;k_guess=20.)
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
-        n = 0.001 .* randn(6, T+1),
         q = q_kf,
         J = 0.0,
         k = k_guess,
@@ -470,7 +481,7 @@ function enzyme_check_param(;k_guess=20.)
         B = ops.B,
         Gamma = ops.Gamma,
         E = ops.E,
-        Q = 0.0 .* ops.Q,
+        Q = ops.Q,
         Q_inv = Q_inv,
         R = ops.R,
         R_inv = R_inv,
@@ -481,7 +492,7 @@ function enzyme_check_param(;k_guess=20.)
     for s in steps
 
         params_fc.x .= [1.0;0.0;0.0;0.0;0.0;0.0]
-        params_fc.k = 20. + s
+        params_fc.k = k_guess + s
         r = params_fc.r
 
         Ac = zeros(6,6)
@@ -507,7 +518,7 @@ function enzyme_check_param(;k_guess=20.)
             params_fc.x .= params_fc.A * params_fc.x + params_fc.B * [params_fc.q(temp); 0.; 0.; 0.; 0.; 0.] + params_fc.Gamma * params_fc.u[:, j-1]
 
             if j in data_steps
-                total_cost = total_cost + (params_fc.x - states_noisy[:,j])' * ops.R^(-1) * (params_fc.x - states_noisy[:,j]) 
+                total_cost = total_cost + (params_fc.x - states_noisy[:,j])' * R_inv * (params_fc.x - states_noisy[:,j]) 
             end
 
             temp += params_fc.dt

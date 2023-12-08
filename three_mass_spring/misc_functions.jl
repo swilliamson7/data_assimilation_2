@@ -47,7 +47,7 @@ function create_data(params, ops)
     temp = 0.0
     for j = 2:T+1 
 
-        x[:] = A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, j]
+        x[:] = A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, j-1]
 
         states[:, j] .= copy(x)
 
