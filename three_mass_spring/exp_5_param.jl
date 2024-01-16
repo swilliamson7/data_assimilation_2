@@ -32,14 +32,16 @@ function integrate1(mso_struct::mso_params_ops)
     temp = 0.0
     for t = 2:T+1
 
-        x .= A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, t-1]
+        x[:] = A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, t-1]
         states[:, t] .= copy(x)
 
         temp += dt
 
         if t in data_steps
 
-            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R_inv * (E * x - E * data[:, t])
+            # mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R_inv * (E * x - E * data[:, t])
+            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * (E * x - E * data[:, t])
+
 
         end
 

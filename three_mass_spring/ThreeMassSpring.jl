@@ -2,8 +2,8 @@ module ThreeMassSpring
 
 using Plots, Enzyme, LinearAlgebra, Statistics, Random
 using Parameters, UnPack, LaTeXStrings
-using Checkpointing, Zygote
-using Optim
+using Checkpointing
+using Optim, Optimization, OptimizationOptimJL
 
 # Chosen random seed 649, will be used for all experiments 
 Random.seed!(649)
@@ -18,5 +18,6 @@ include("exp_2_multdata.jl")
 include("exp_3_obsofavg.jl")
 include("exp_4_fixedpos.jl")
 include("exp_5_param.jl")
+# include("optim_test_param.jl")
 
 end

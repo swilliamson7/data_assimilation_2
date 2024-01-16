@@ -3,7 +3,7 @@ function build_ops(params; E = zeros(6,6), R = zeros(6,6), K = zeros(6,6))
     
     dt = params.dt
     k = params.k
-    r = params.r 
+    r = params.r
 
     Rc = -r .* diagm(ones(3))
     Kc = [-2*k k 0; k -3*k k; 0 k -2*k]
@@ -16,14 +16,14 @@ function build_ops(params; E = zeros(6,6), R = zeros(6,6), K = zeros(6,6))
     ms_ops = mso_operators(A=A,
     E=E,
     R=R,
-    K=K, 
+    K=K,
     Kc=Kc
     )
 
-    return ms_ops 
+    return ms_ops
 end
 
-# computes the kinetic energy given a state vector x 
+# computes the kinetic energy given a state vector x
 function compute_energy(x, Kc)
 
     kin = 0.5 * (x[4:6]' * x[4:6])
@@ -44,17 +44,17 @@ function create_data(params, ops)
     states_noisy[:,1] .= x + n[:,1]
     kin, ptl, total = compute_energy(states[:,1], Kc)
     energy[:, 1] = [kin;ptl;total]
+
     temp = 0.0
-    for j = 2:T+1 
+    for j = 2:T+1
 
-        x[:] = A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, j]
-
+        x[:] = A * x + B * [q(temp); 0.; 0.; 0.; 0.; 0.] + Gamma * u[:, j-1]
         states[:, j] .= copy(x)
 
         kin, ptl, total = compute_energy(x, Kc)
         energy[:,j] = [kin;ptl;total]
 
-        states_noisy[:, j] = copy(x) + n[:, j]
+        states_noisy[:, j] .= copy(x) + n[:, j]
         temp += dt
 
     end 
@@ -108,7 +108,13 @@ function integrate(mso_struct::mso_params, ops::mso_operators)
     energy[:,1] = [kin;ptl;total]
     states[:,1] .= x
 
-    Q_inv = 1/ops.Q[1,1]
+    diag = 0.0
+    Q_inv = diag
+
+    ######################
+    ops.R_inv = ops.R^(-1)
+    # R_inv = ops.E
+    ######################
 
     # run the model forward to get estimates for the states 
     temp = 0.0
@@ -121,7 +127,7 @@ function integrate(mso_struct::mso_params, ops::mso_operators)
 
         if t in data_steps
 
-            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R^(-1) * (E * x - E * data[:, t]) + u[:, t]' * Q_inv * u[:, t]
+            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R_inv * (E * x - E * data[:, t]) + u[:, t]' * Q_inv * u[:, t]
 
         end
 

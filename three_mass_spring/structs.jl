@@ -13,7 +13,7 @@ end
     u::Matrix{Float64} = zeros(6, T+1)   # random forcing (if any), otherwise just leave zero 
     n::Matrix{Float64} = zeros(6, T+1)   # placeholder for noise to add to the data 
 
-    k::Int = 30          # spring constant
+    k::Float64 = 30          # spring constant
     r::Float64 = 0.5     # Rayleigh friction coefficient
 
     q::F                 # forcing function 
@@ -80,7 +80,7 @@ end
 
     E::Matrix{Float64} = zeros(6,6)           # Acts on data vector, generally the identity (e.g. full info on all positions/velocities)
 
-    Q::Matrix{Float64} = zeros(6,6)           # Covariance matrix for unknown (random) forcing 
+    Q::Matrix{Float64} = zeros(6,6)           # Covariance matrix for unknown (random) forcing
     R::Matrix{Float64} = zeros(6,6)           # Covariance matrix for noise in data 
 
     K::Matrix{Float64} = zeros(6,6)           # Placeholder for Kalman gain matrix 
