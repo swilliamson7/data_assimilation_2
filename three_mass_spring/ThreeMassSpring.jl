@@ -18,6 +18,6 @@ include("exp_2_multdata.jl")
 include("exp_3_obsofavg.jl")
 include("exp_4_fixedpos.jl")
 include("exp_5_param.jl")
-# include("optim_test_param.jl")
+include("optim_test_param.jl")
 
 end

@@ -337,8 +337,13 @@ function enzyme_check_param(;k_guess=20.)
      # Parameter choices
      T = 10000             # Total number of steps to integrate
      r = 0.5               # spring coefficient
-     q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function
-     q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
+
+    ###########################################
+    q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function
+    # q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
+    q_kf(t) = q_true(t)
+    ###########################################
+    
      data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
      # data_steps2 = [k for k in 7200:100:9000]
      # data_steps = [data_steps1;data_steps2]
@@ -350,10 +355,10 @@ function enzyme_check_param(;k_guess=20.)
      u[1, :] .= rand_forcing
  
      params_true = mso_params(T = T,
-     x = [1.0, 3.0, 0.0, 0.0, 0.0, 0.0],
+     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
      u = u,
      k = 30,
-     n = 0.05 .* randn(6, T+1),
+     n = 0.0001 .* randn(6, T+1),
      q = q_true,
      data_steps = data_steps,
      data = zeros(1,1),
@@ -390,13 +395,15 @@ function enzyme_check_param(;k_guess=20.)
 
     diag = 0.0
     Q_inv = diag
-    R_inv = ops.R^(-1)
+
+    # R_inv = ops.R^(-1)
+    R_inv = ops.E
 
     params_adjoint2 = mso_params_ops(T=T,
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
-        n = 0.001 .* randn(6, T+1),
+        n = 0.0 .* randn(6, T+1),
         q = q_kf,
         J = 0.0,
         k = k_guess,
@@ -417,7 +424,11 @@ function enzyme_check_param(;k_guess=20.)
     )
 
     dparams_adjoint2 = Enzyme.Compiler.make_zero(Core.Typeof(params_adjoint2), IdDict(), params_adjoint2)
-    dparams_adjoint2.J = 1.
+    dparams_adjoint2.J = 1.0
+    dparams_adjoint2.k = 0.
+    dparams_adjoint2.r = 0.
+    dparams_adjoint2.dt = 0.
+    dparams_adjoint2.Q_inv = 0.
 
     autodiff(Reverse, integrate1, Duplicated(params_adjoint2, dparams_adjoint2))
 
@@ -425,7 +436,7 @@ function enzyme_check_param(;k_guess=20.)
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
-        n = 0.001 .* randn(6, T+1),
+        n = 0.0 .* randn(6, T+1),
         q = q_kf,
         J = 0.0,
         k = k_guess,
@@ -509,7 +520,7 @@ function enzyme_check_param(;k_guess=20.)
             params_fc.x .= params_fc.A * params_fc.x + params_fc.B * [params_fc.q(temp); 0.; 0.; 0.; 0.; 0.] + params_fc.Gamma * params_fc.u[:, j-1]
 
             if j in data_steps
-                total_cost = total_cost + (params_fc.x - states_noisy[:,j])' * ops.R^(-1) * (params_fc.x - states_noisy[:,j]) 
+                total_cost = total_cost + (params_fc.x - states_noisy[:,j])' * R_inv * (params_fc.x - states_noisy[:,j]) 
             end
 
             temp += params_fc.dt

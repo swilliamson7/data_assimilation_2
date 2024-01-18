@@ -84,7 +84,6 @@ end
     R::Matrix{Float64} = zeros(6,6)           # Covariance matrix for noise in data 
 
     K::Matrix{Float64} = zeros(6,6)           # Placeholder for Kalman gain matrix 
-    Kc::Matrix{Float64} = zeros(6,6)          
+    Kc::Matrix{Float64} = zeros(6,6)
 
 end
-    
