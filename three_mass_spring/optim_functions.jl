@@ -24,7 +24,7 @@ function cost_eval(k_guess)
     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     u = u,
     k = 30,
-    n = 0.0001 .* randn(6, T+1),
+    n = 0.001 .* randn(6, T+1),
     q = q_true,
     data_steps = data_steps,
     data = zeros(1,1),
@@ -72,14 +72,6 @@ function cost_eval(k_guess)
     R_inv = ops_pred.R^(-1)
     # R_inv = ops_pred.E
     ###################################
-
-    diag = 0.0
-    Q_inv = diag
-
-    ###############################
-    R_inv = ops_pred.R^(-1)
-    # R_inv = Diagonal(ones(6))
-    ##############################
 
     params_adjoint = mso_params_ops(T=T,
         t = 0,
@@ -137,7 +129,7 @@ function gradient_eval(G, k_guess)
     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     u = u,
     k = 30,
-    n = 0.0001 .* randn(6, T+1),
+    n = 0.001 .* randn(6, T+1),
     q = q_true,
     data_steps = data_steps,
     data = zeros(1,1),
@@ -185,14 +177,6 @@ function gradient_eval(G, k_guess)
     R_inv = ops_pred.R^(-1)
     # R_inv = ops_pred.E
     ###################################
-
-    diag = 0.0
-    Q_inv = diag
-
-    ###############################
-    R_inv = ops_pred.R^(-1)
-    # R_inv = Diagonal(ones(6))
-    ##############################
 
     params_adjoint = mso_params_ops(T=T,
         t = 0,
