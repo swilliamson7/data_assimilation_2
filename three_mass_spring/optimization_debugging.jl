@@ -57,10 +57,10 @@ end
 
     J::Float64 = 0.0     # cost function storage
 
-    data_steps::Vector{Int64}       # the timesteps where data points exist 
+    data_steps::Vector{Int64}       # the timesteps where data points exist
     data::Matrix{Float64}
 
-    states::Matrix{Float64}    # placeholder for computed states 
+    states::Matrix{Float64}    # placeholder for computed states
     energy::Matrix{Float64}    # placeholder for computed energy
 
 end
@@ -122,7 +122,7 @@ function integrate1(mso_struct::mso_params_ops1)
 
         if t in data_steps
 
-            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R_inv * (E * x - E * data[:, t])
+            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * (E * x - E * data[:, t])
 
         end
 
@@ -139,12 +139,11 @@ function cost_function_eval(k_guess, p)
     r = 0.5               # spring coefficient
 
     ###########################################
-    q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function
-    # q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
+    q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))
     q_kf(t) = q_true(t)
     ###########################################
 
-    data_steps1 = [j for j in 3000:200:7000]         # steps where data will be assimilated
+    data_steps1 = [j for j in 3000:200:7000]
     data_steps = data_steps1
 
     rand_forcing = 0.1 .* randn(T+1)
@@ -210,7 +209,6 @@ function cost_function_eval(k_guess, p)
 
     ######################
     R_inv = ops.E
-    # R_inv = ops.R^(-1)
     ######################
 
     params_adjoint = mso_params_ops1(T=T,
@@ -231,7 +229,9 @@ function cost_function_eval(k_guess, p)
         Q = 0.0 .* ops.Q,
         Q_inv = Q_inv,
         R = ops.R,
-        R_inv = R_inv
+        R_inv = R_inv,
+        K = ops.K,
+        Kc = ops.Kc
     )
 
     integrate1(params_adjoint)
@@ -240,8 +240,17 @@ function cost_function_eval(k_guess, p)
 
 end
 
-k_guess = [29.]
+k0 = [31.]
 p = 0.0
 optf = OptimizationFunction(cost_function_eval, Optimization.AutoEnzyme())
-prob = OptimizationProblem(optf,k_guess,p)
+prob = OptimizationProblem(optf, k0, p)
 sol = solve(prob, BFGS())
+
+# dparams = Enzyme.Compiler.make_zero(Core.Typeof(params_adjoint), IdDict(), params_adjoint)
+# dparams.J = 1.0
+# dparams.k = 0.
+# dparams.r = 0.
+# dparams.dt = 0.
+# dparams.Q_inv = 0.
+
+# Enzyme.autodiff(Reverse, integrate1, Duplicated(params_adjoint, dparams))

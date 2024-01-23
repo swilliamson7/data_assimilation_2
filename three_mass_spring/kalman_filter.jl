@@ -20,7 +20,7 @@ function run_kalman_filter(
     for t = 2:T+1
 
         x .=  A * x + B * [params.q(temp); 0.; 0.; 0.; 0.; 0.]
-        P .= A * P * A' + Gamma * Q * Gamma' 
+        P .= A * P * A' + Gamma * Q * Gamma'
 
         K .= P * E' * (E * P * E' + R)^(-1)
 

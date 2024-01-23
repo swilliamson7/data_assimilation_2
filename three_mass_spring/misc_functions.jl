@@ -1,4 +1,3 @@
-
 function build_ops(params; E = zeros(6,6), R = zeros(6,6), K = zeros(6,6))
     
     dt = params.dt
