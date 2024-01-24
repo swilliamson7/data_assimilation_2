@@ -283,18 +283,18 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
 
     # Separate cost and gradient
 
-    sol = optimize(cost_eval,
-        gradient_eval,
-        [k_guess],
-        LBFGS(),
-        Optim.Options(allow_f_increases=true)
-    )
+    # sol = optimize(cost_eval,
+    #     gradient_eval,
+    #     [k_guess],
+    #     LBFGS(),
+    #     Optim.Options(allow_f_increases=true)
+    # )
 
-    @show sol.minimizer
+    # @show sol.minimizer
 
-    plot(j, J)
-    xlabel!("iteration")
-    ylabel!("Objective value")
+    # plot(j, J)
+    # xlabel!("iteration")
+    # ylabel!("Objective value")
 
     # # plot of fixed displacement
     # fixed_pos = plot(params_true.states[2,:],
