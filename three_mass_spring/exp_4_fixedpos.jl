@@ -52,7 +52,7 @@ function exp_4_fixedpos(;optm_steps = 100)
     params_true = mso_params(T = T,
     x = [1.0, 3.0, 0.0, 0.0, 0.0, 0.0],
     u = u,
-    n = 0.05 .* randn(6, T+1), 
+    n = 0.01 .* randn(6, T+1), 
     q = q_true,
     data_steps = data_steps,
     data = zeros(1,1),

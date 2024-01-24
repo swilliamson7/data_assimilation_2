@@ -305,14 +305,6 @@ function cost_gradient_eval(F, G, k_guess, params_adjoint)
     # # R_inv = ops_pred.E
     # ###################################
 
-    # diag = 0.0
-    # Q_inv = diag
-
-    # ###############################
-    # R_inv = ops_pred.R^(-1)
-    # # R_inv = Diagonal(ones(6))
-    # ##############################
-
     # params_adjoint = mso_params_ops(T=T,
     #     t = 0,
     #     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -368,121 +360,12 @@ function cost_gradient_eval(F, G, k_guess, params_adjoint)
 
 end
 
-function setup_model(;k_guess = [31.], T = 10000)
+# params_adjoint, params_pred, params_true = ThreeMassSpring.setup_model()
+# G = [0.]
 
-    # Parameter choices
-    T = T             # Total number of steps to integrate
-    r = 0.5               # spring coefficient
+# # without gradient, seems to work
+# sol = optimize(k -> ThreeMassSpring.cost_eval(k, params_adjoint), [31.], Optim.LBFGS())
 
-    ###########################################
-    q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function
-    q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
-    # q_kf(t) = q_true(t)
-    ###########################################
-    
-    data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
-    # data_steps2 = [k for k in 7200:100:9000]
-    # data_steps = [data_steps1;data_steps2]
-    data_steps = data_steps1
-    # data_steps = [t for t in 1:T]
-
-    rand_forcing = 0.1 .* randn(T+1)
-    u = zeros(6, T+1)
-    u[1, :] .= rand_forcing
-
-    params_true = ThreeMassSpring.mso_params(T = T,
-    x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    u = u,
-    k = 30,
-    n = 0.0001 .* randn(6, T+1),
-    q = q_true,
-    data_steps = data_steps,
-    data = zeros(1,1),
-    states = zeros(6, T+1),
-    energy = zeros(3, T+1)
-    )
-
-    params_pred = ThreeMassSpring.mso_params(T = T,
-    x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    q = q_kf,
-    u = u,
-    k = k_guess[1],
-    data_steps = data_steps,
-    data = zeros(1,1),
-    states = zeros(6, T+1),
-    energy = zeros(3, T+1)
-    )
-
-    ops_true = ThreeMassSpring.build_ops(params_true)
-    ops_pred = ThreeMassSpring.build_ops(params_pred)
-
-    # assuming data of all positions and velocities -> E is the identity operator
-    ops_true.E .= Diagonal(ones(6))
-    ops_pred.E .= Diagonal(ones(6))
-    
-    ops_true.Q[1,1] = cov(params_true.u[:], corrected=false)
-    ops_pred.Q[1,1] = cov(params_true.u[:], corrected=false)
-
-    ops_true.R .= cov(params_true.n[:], corrected=false) .* Diagonal(ones(6))
-    ops_pred.R .= cov(params_true.n[:], corrected=false) .* Diagonal(ones(6))
-
-    # assuming random forcing on position of mass one
-    ops_true.Gamma[1,1] = 1.0
-    ops_pred.Gamma[1, 1] = 1.0
-
-    # pure prediction model
-    _ = ThreeMassSpring.create_data(params_pred, ops_pred)
-
-    states_noisy = ThreeMassSpring.create_data(params_true, ops_true)
-
-    diag = 0.0
-    Q_inv = diag
-
-    ###################################
-    R_inv = ops_pred.R^(-1)
-    # R_inv = ops_pred.E
-    ###################################
-
-    diag = 0.0
-    Q_inv = diag
-
-    ###############################
-    R_inv = ops_pred.R^(-1)
-    # R_inv = Diagonal(ones(6))
-    ##############################
-
-    params_adjoint = mso_params_ops(T=T,
-        t = 0,
-        x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        u = u,
-        n = 0.0 .* randn(6, T+1),
-        q = q_kf,
-        J = 0.0,
-        k = k_guess[1],
-        data_steps = data_steps,
-        data = states_noisy,
-        states = zeros(6, T+1),
-        energy = zeros(3, T+1),
-        A = ops_pred.A,
-        B = ops_pred.B,
-        Gamma = ops_pred.Gamma,
-        E = ops_pred.E,
-        Q = 0.0 .* ops_pred.Q,
-        Q_inv = Q_inv,
-        R = ops_pred.R,
-        R_inv = R_inv,
-        K = ops_pred.K,
-        Kc = ops_pred.Kc
-    )
-
-    return params_adjoint, params_pred, params_true
-
-end
-
-params_adjoint, params_pred, params_true = ThreeMassSpring.setup_model()
-
-# without gradient, seems to work
-sol = optimize(k -> ThreeMassSpring.cost_eval(k, params_adjoint), [31.], Optim.LBFGS())
-
-# trying to get a method with the gradient
-sol = optimize(k -> Optim.only_fg(ThreeMassSpring.cost_gradient_eval(F, G, k, params_adjoint)), [31.], Optim.LBFGS())
+# # trying to get a method with the gradient
+# sol = optimize(k -> Optim.only_fg(ThreeMassSpring.cost_gradient_eval(F, G, k, params_adjoint)), [31.], Optim.LBFGS())
+# # sol = optimize(k -> ThreeMassSpring.cost_eval(k, params_adjoint), k -> ThreeMassSpring.gradient_eval(G, k, params_adjoint), [31.], Optim.LBFGS())

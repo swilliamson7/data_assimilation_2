@@ -53,6 +53,126 @@ function integrate1(mso_struct::mso_params_ops)
 
 end
 
+# function setup_model(;k_guess = [31.], T = 10000)
+
+#     # Parameter choices
+#     T = T             # Total number of steps to integrate
+#     r = 0.5               # spring coefficient
+
+#     ###########################################
+#     q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function
+#     q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
+#     # q_kf(t) = q_true(t)
+#     ###########################################
+    
+#     data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
+#     # data_steps2 = [k for k in 7200:100:9000]
+#     # data_steps = [data_steps1;data_steps2]
+#     data_steps = data_steps1
+#     # data_steps = [t for t in 1:T]
+
+#     rand_forcing = 0.1 .* randn(T+1)
+#     u = zeros(6, T+1)
+#     u[1, :] .= rand_forcing
+
+#     params_true = ThreeMassSpring.mso_params(T = T,
+#     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+#     u = u,
+#     k = 30,
+#     n = 0.0001 .* randn(6, T+1),
+#     q = q_true,
+#     data_steps = data_steps,
+#     data = zeros(1,1),
+#     states = zeros(6, T+1),
+#     energy = zeros(3, T+1)
+#     )
+
+#     params_pred = ThreeMassSpring.mso_params(T = T,
+#     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+#     q = q_kf,
+#     u = u,
+#     k = k_guess[1],
+#     data_steps = data_steps,
+#     data = zeros(1,1),
+#     states = zeros(6, T+1),
+#     energy = zeros(3, T+1)
+#     )
+
+#     ops_true = ThreeMassSpring.build_ops(params_true)
+#     ops_pred = ThreeMassSpring.build_ops(params_pred)
+
+#     # assuming data of all positions and velocities -> E is the identity operator
+#     ops_true.E .= Diagonal(ones(6))
+#     ops_pred.E .= Diagonal(ones(6))
+    
+#     ops_true.Q[1,1] = cov(params_true.u[:], corrected=false)
+#     ops_pred.Q[1,1] = cov(params_true.u[:], corrected=false)
+
+#     ops_true.R .= cov(params_true.n[:], corrected=false) .* Diagonal(ones(6))
+#     ops_pred.R .= cov(params_true.n[:], corrected=false) .* Diagonal(ones(6))
+
+#     # assuming random forcing on position of mass one
+#     ops_true.Gamma[1,1] = 1.0
+#     ops_pred.Gamma[1, 1] = 1.0
+
+#     # pure prediction model
+#     _ = ThreeMassSpring.create_data(params_pred, ops_pred)
+
+#     states_noisy = ThreeMassSpring.create_data(params_true, ops_true)
+
+#     diag = 0.0
+#     Q_inv = diag
+
+#     ###################################
+#     R_inv = ops_pred.R^(-1)
+#     # R_inv = ops_pred.E
+#     ###################################
+
+#     params_kf = mso_params(T=T,
+#         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+#         u = u,
+#         k = k_guess[1],
+#         n = zeros(1,1),
+#         q = q_kf,
+#         data_steps = data_steps,
+#         data = states_noisy,
+#         states = zeros(6, T+1),
+#         energy = zeros(3, T+1)
+#     )
+
+#     uncertainty = run_kalman_filter(
+#         params_kf,
+#         ops_pred
+#     )
+
+#     params_adjoint = mso_params_ops(T=T,
+#         t = 0,
+#         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+#         u = u,
+#         n = 0.0 .* randn(6, T+1),
+#         q = q_kf,
+#         J = 0.0,
+#         k = k_guess[1],
+#         data_steps = data_steps,
+#         data = states_noisy,
+#         states = zeros(6, T+1),
+#         energy = zeros(3, T+1),
+#         A = ops_pred.A,
+#         B = ops_pred.B,
+#         Gamma = ops_pred.Gamma,
+#         E = ops_pred.E,
+#         Q = 0.0 .* ops_pred.Q,
+#         Q_inv = Q_inv,
+#         R = ops_pred.R,
+#         R_inv = R_inv,
+#         K = ops_pred.K,
+#         Kc = ops_pred.Kc
+#     )
+
+#     return params_adjoint, params_pred, params_true, params_kf, uncertainty
+
+# end
+
 function grad_descent1(M, params::mso_params_ops)
 
     T = params.T
@@ -61,6 +181,7 @@ function grad_descent1(M, params::mso_params_ops)
     params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     params.states .= zeros(6, T+1)
     params.energy .= zeros(3, T+1)
+    params.J = 0.0
 
     dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
     dparams.J = 1.0
@@ -162,7 +283,7 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
     q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
     # q_kf(t) = q_true(t)
     ###########################################
-   
+
     data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
     # data_steps2 = [k for k in 7200:100:9000]
     # data_steps = [data_steps1;data_steps2]
@@ -174,26 +295,26 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
     u[1, :] .= rand_forcing
 
     params_true = ThreeMassSpring.mso_params(T = T,
-    x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    u = u,
-    k = 30,
-    n = 0.0001 .* randn(6, T+1), ##############################
-    q = q_true,
-    data_steps = data_steps,
-    data = zeros(1,1),
-    states = zeros(6, T+1),
-    energy = zeros(3, T+1)
+        x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        u = u,
+        k = 30,
+        n = 0.0001 .* randn(6, T+1),
+        q = q_true,
+        data_steps = data_steps,
+        data = zeros(1,1),
+        states = zeros(6, T+1),
+        energy = zeros(3, T+1)
     )
 
     params_pred = ThreeMassSpring.mso_params(T = T,
-    x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    q = q_kf,
-    u = u,
-    k = k_guess,
-    data_steps = data_steps,
-    data = zeros(1,1),
-    states = zeros(6, T+1),
-    energy = zeros(3, T+1)
+        x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        q = q_kf,
+        u = u,
+        k = k_guess,
+        data_steps = data_steps,
+        data = zeros(1,1),
+        states = zeros(6, T+1),
+        energy = zeros(3, T+1)
     )
 
     ops_true = ThreeMassSpring.build_ops(params_true)
@@ -202,7 +323,7 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
     # assuming data of all positions and velocities -> E is the identity operator
     ops_true.E .= Diagonal(ones(6))
     ops_pred.E .= Diagonal(ones(6))
-   
+
     ops_true.Q[1,1] = cov(params_true.u[:], corrected=false)
     ops_pred.Q[1,1] = cov(params_true.u[:], corrected=false)
 
@@ -221,10 +342,11 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
     diag = 0.0
     Q_inv = diag
 
-    ###################################
+    ###############################
     R_inv = ops_pred.R^(-1)
     # R_inv = ops_pred.E
-    ###################################
+    ###############################
+
 
     params_kf = mso_params(T=T,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -267,108 +389,89 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
         Kc = ops_pred.Kc
     )
 
+    # params_adjoint, params_pred, params_true, params_kf, uncertainty = setup_model(k_guess = [k_guess])
+    # T = params_true.T
+
     ################# Handwritten gradient descent
 
-    _, j, J = grad_descent1(100, params_adjoint)
+    params_adjoint, _, _ = grad_descent1(optm_steps, params_adjoint)
+    @show params_adjoint.k
 
-    ################### Optim.jl
+    # plot of displacement
+    fixed_pos = plot(params_true.states[2,:],
+    label = L"x_2(t)"
+    )
 
-    # Combined cost and gradient
-
-    # sol = optimize(Optim.only_fg!(cost_gradient_eval),
-    #     [k_guess],
-    #     Optim.LBFGS(),
-    #     Optim.Options(allow_f_increases=true)
-    # )
-
-    # Separate cost and gradient
-
-    # sol = optimize(cost_eval,
-    #     gradient_eval,
-    #     [k_guess],
-    #     LBFGS(),
-    #     Optim.Options(allow_f_increases=true)
-    # )
-
-    # @show sol.minimizer
-
-    # plot(j, J)
-    # xlabel!("iteration")
-    # ylabel!("Objective value")
-
-    # # plot of fixed displacement
-    # fixed_pos = plot(params_true.states[2,:],
-    # label = L"x_2(t)"
-    # )
-
-    # # plot!(params_pred.states[2, :],
-    # # label = L"\tilde{x}_2(t, -)"
-    # # )
-    # # for uncertainty ribbon 
-    # to_plot1 = []
-    # to_plot2 = []
-    # for j = 1:T+1 
-    #     push!(to_plot1, sqrt(uncertainty[j][2,2]))
-    #     push!(to_plot2, sqrt(uncertainty[j][5,5]))
-    # end
+    plot!(params_pred.states[2, :],
+    label = L"\tilde{x}_2(t, -)"
+    )
+    # for uncertainty ribbon 
+    to_plot1 = []
+    to_plot2 = []
+    for j = 1:T+1
+        push!(to_plot1, sqrt(uncertainty[j][2,2]))
+        push!(to_plot2, sqrt(uncertainty[j][5,5]))
+    end
     # plot!(params_kf.states[2,:], ribbon = to_plot1, ls=:dash, label = L"\tilde{x}_2(t)")
-    
-    # plot!(params_adjoint.states[2,:], ls=:dashdot,
-    # label = L"\tilde{x}_2(t, +)")
-    # vline!(data_steps, 
-    # label = "",
-    # ls=:dot,
-    # lc=:red,
-    # lw=0.5
-    # )
-    # ylabel!("Position")
+    plot!(params_kf.states[2,:], ls=:dash, label = L"\tilde{x}_2(t)")
 
-    # # plot of fixed velocity 
-    # fixed_vel = plot(params_true.states[5,:],
-    # label = L"x_5(t)")
-    # # plot!(params_pred.states[5, :],
-    # # label = L"\tilde{x}_5(t, -)"
-    # # )
+    plot!(params_adjoint.states[2,:], ls=:dashdot,
+    label = L"\tilde{x}_2(t, +)")
+    vline!(data_steps, 
+    label = "",
+    ls=:dot,
+    lc=:red,
+    lw=0.5
+    )
+    ylabel!("Position")
+
+    # plot of fixed velocity 
+    fixed_vel = plot(params_true.states[5,:],
+    label = L"x_5(t)")
+    plot!(params_pred.states[5, :],
+    label = L"\tilde{x}_5(t, -)"
+    )
     # plot!(params_kf.states[5,:], ls=:dash, label = L"\tilde{x}_5(t)", ribbon = to_plot2)
-    # plot!(params_adjoint.states[5,:], ls=:dashdot,
-    # label = L"\tilde{x}_5(t, +)")
-    # vline!(data_steps, 
-    # label = "",
-    # ls=:dot,
-    # lc=:red,
-    # lw=0.5
-    # )
-    # ylabel!("Velocity")
+    plot!(params_kf.states[5,:], ls=:dash, label = L"\tilde{x}_5(t)")
+    plot!(params_adjoint.states[5,:], ls=:dashdot,
+    label = L"\tilde{x}_5(t, +)")
+    vline!(data_steps, 
+    label = "",
+    ls=:dot,
+    lc=:red,
+    lw=0.5
+    )
+    ylabel!("Velocity")
 
-    # # plot of energy 
-    # energy = plot(params_true.energy[3,:],
-    # label=L"\varepsilon(t)")
-    # plot!(params_pred.energy[3,:], label=L"\tilde{\varepsilon}(t,-)")
-    # plot!(params_kf.energy[3,:], ls=:dash, label=L"\tilde{\varepsilon}(t)")
-    # plot!(params_adjoint.energy[3,:], ls=:dashdot, label=L"\tilde{\varepsilon}(t,+)")
-    # vline!(data_steps, 
-    # label = "",
-    # ls=:dot,
-    # lc=:red,
-    # lw=0.5
-    # )
-    # ylabel!("Energy")
+    # plot of energy
+    energy = plot(params_true.energy[3,:],
+    label=L"\varepsilon(t)")
+    plot!(params_pred.energy[3,:], label=L"\tilde{\varepsilon}(t,-)")
+    plot!(params_kf.energy[3,:], ls=:dash, label=L"\tilde{\varepsilon}(t)")
+    plot!(params_adjoint.energy[3,:], ls=:dashdot, label=L"\tilde{\varepsilon}(t,+)")
+    vline!(data_steps, 
+    label = "",
+    ls=:dot,
+    lc=:red,
+    lw=0.5
+    )
+    ylabel!("Energy")
 
-    # # plot of differences 
-    # diffs = plot(abs.(params_true.states[2,:] - params_kf.states[2,:]),
-    # label = L"|x_2(t) - \tilde{x}_2(t)|"
-    # )
-    # plot!(abs.(params_true.states[2, :] - params_adjoint.states[2,:]),
-    # label = L"|x_2(t) - \tilde{x}_2(t, +)|"
-    # )
-    # ylabel!("Position")
-    # xlabel!("Timestep")
+    # plot of differences 
+    diffs = plot(abs.(params_true.states[2,:] - params_kf.states[2,:]),
+    label = L"|x_2(t) - \tilde{x}_2(t)|"
+    )
+    plot!(abs.(params_true.states[2, :] - params_adjoint.states[2,:]),
+    label = L"|x_2(t) - \tilde{x}_2(t, +)|"
+    )
+    ylabel!("Position")
+    xlabel!("Timestep")
 
-    # plot(fixed_pos, fixed_vel, energy, diffs,
-    # layout = (4,1),
-    # fmt = :png,
-    # dpi = 300,
-    # legend = :outerright)
+    plot(fixed_pos, fixed_vel, energy, diffs,
+    layout = (4,1),
+    fmt = :png,
+    dpi = 300,
+    legend = :outerright)
     
 
 end
@@ -473,6 +576,9 @@ function enzyme_check_param(;k_guess=20.)
         K = ops_pred.K,
         Kc = ops_pred.Kc
     )
+
+    # params_adjoint2, _, _, _, _ = setup_model(k_guess = [k_guess])
+    # T = params_adjoint2.T
 
     dparams_adjoint2 = Enzyme.Compiler.make_zero(Core.Typeof(params_adjoint2), IdDict(), params_adjoint2)
     dparams_adjoint2.J = 1.0
