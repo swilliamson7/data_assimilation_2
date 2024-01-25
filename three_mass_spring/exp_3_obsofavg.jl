@@ -29,19 +29,19 @@ function exp_3_obsofavg()
     q = q_kf, 
     data_steps = data_steps,
     data = zeros(1,1),
-    states = zeros(6, T+1), 
+    states = zeros(6, T+1),
     energy = zeros(3, T+1)
     )
 
     ops = build_ops(
-        params_true, 
-        E = zeros(2,6), 
+        params_true,
+        E = zeros(2,6),
         R = zeros(2,2),
         K = zeros(6,2)
     )
 
     # assuming data is an average of positions 1 and 2 and velocities 2 and 3
-    ops.E[1,1] = 0.5 
+    ops.E[1,1] = 0.5
     ops.E[1,2] = 0.5
     ops.E[2,5] = 0.5
     ops.E[2,6] = 0.5
@@ -120,8 +120,8 @@ function exp_3_obsofavg()
     )
     grad_descent(100, params_adjoint, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-    # creating plots for second experiment  
-    # plot of the position of mass one 
+    # creating plots for second experiment
+    # plot of the position of mass one
     mass_1_pos = plot(params_true.states[1,:],
         label = L"x_1(t)"
     )

@@ -84,7 +84,8 @@ function integrate(mso_struct::mso_params_ops)
 
         if t in data_steps
 
-            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R_inv * (E * x - E * data[:, t]) + u[:, t]' * Q_inv * u[:, t]
+            mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R_inv * (E * x - E * data[:, t]) 
+                + u[:, t]' * Q_inv * u[:, t]
 
         end
 
