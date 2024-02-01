@@ -44,3 +44,4 @@ output_from_debugging/gc_error8.txt
 output_from_debugging/gc_error9.txt
 *.png
 three_mass_spring/Enzyme.jl/
+*.txt

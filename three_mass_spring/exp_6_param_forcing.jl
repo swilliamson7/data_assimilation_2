@@ -175,6 +175,51 @@ function grad_descent2(M, params::mso_params_ops)
 
 end
 
+function F_param_forcing(k_guess, params)
+
+    T = params.T
+    params.k = k_guess[1]
+    params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    params.states .= zeros(6, T+1)
+    params.J = 0.0
+    params.energy .= zeros(3, T+1)
+
+    integrate2(params)
+
+    return params.J
+
+end
+
+function G_param_forcing(G, k_guess, params)
+
+    T = params.T
+
+    params.k = k_guess[1]
+    params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    params.states .= zeros(6, T+1)
+    params.J = 0.0
+    params.energy .= zeros(3, T+1)
+
+    dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
+    dparams.J = 1.0
+    dparams.k = 0.
+    dparams.r = 0.
+    dparams.dt = 0.
+    dparams.Q_inv = 0.
+
+    autodiff(Reverse, integrate2, Duplicated(params, dparams))
+
+    G[1] = dparams.k
+
+end
+
+function FG_param_forcing(F, G, k_guess, params)
+
+    G === nothing || G_param_forcing(G, k_guess, params)
+    F === nothing || return F_param_forcing(k_guess, params)
+
+end
+
 function exp_6_param_forcing(;optm_steps = 100, k_guess=31.)
 
     # Parameter choices
@@ -294,6 +339,7 @@ function exp_6_param_forcing(;optm_steps = 100, k_guess=31.)
 
     grad_descent2(optm_steps, params_adjoint)
     @show params_adjoint.k
+
 
     # plot of displacement
     fixed_pos = plot(params_true.states[2,:],

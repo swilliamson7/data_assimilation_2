@@ -133,21 +133,6 @@ function cost_eval(k_guess, params_adjoint)
 
 end
 
-function F(F, k_guess, params_adjoint)
-
-    T = params_adjoint.T
-    params_adjoint.k = k_guess[1]
-    params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    params_adjoint.states .= zeros(6, T+1)
-    params_adjoint.J = 0.0
-    params_adjoint.energy .= zeros(3, T+1)
-
-    integrate1(params_adjoint)
-
-    F[1] = params_adjoint.J
-
-end
-
 function gradient_eval(G, k_guess, params_adjoint)
 
     T = params_adjoint.T
@@ -205,10 +190,8 @@ function cost_gradient(F, G, k_guess, params_adjoint)
 
 end
 
-# params_adjoint, params_pred, params_true = ThreeMassSpring.setup_model()
-# G = [0.]
-
 # without gradient, seems to work
+# params_adjoint, params_pred, params_true = ThreeMassSpring.setup_model()
 # sol = optimize(k -> ThreeMassSpring.cost_eval(k, params_adjoint), [31.], Optim.LBFGS())
 
 # # trying to get a method with the gradient
@@ -220,10 +203,7 @@ end
 
 # WORKING
 
-params_adjoint, params_pred, params_true = ThreeMassSpring.setup_model()
-
-fg!_closure(F, G, k) = ThreeMassSpring.FG(F, G, k, params_adjoint)
-
-obj_fg = Optim.only_fg!(fg!_closure)
-
-result_fg!_closure = Optim.optimize(obj_fg, [33.], Optim.LBFGS(), Optim.Options())
+# params_adjoint, params_pred, params_true = ThreeMassSpring.setup_model()
+# fg!_closure(F, G, k) = ThreeMassSpring.FG(F, G, k, params_adjoint)
+# obj_fg = Optim.only_fg!(fg!_closure)
+# result_fg!_closure = Optim.optimize(obj_fg, [35.], Optim.LBFGS(), Optim.Options())
