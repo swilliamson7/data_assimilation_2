@@ -7,7 +7,6 @@ function setup_model(;k_guess = [31.], T = 10000)
     ###########################################
     q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function
     q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
-    # q_kf(t) = q_true(t)
     ###########################################
     
     data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
@@ -150,10 +149,9 @@ function gradient_eval(G, k_guess, params_adjoint)
     dparams.dt = 0.
     dparams.Q_inv = 0.
 
-    autodiff(Reverse, integrate1, Duplicated(params_adjoint, dparams))
+    autodiff(Reverse, ThreeMassSpring.integrate1, Duplicated(params_adjoint, dparams))
 
     G[1] = dparams.k
-
 
 end
 
@@ -203,7 +201,7 @@ end
 
 # WORKING
 
-# params_adjoint, params_pred, params_true = ThreeMassSpring.setup_model()
-# fg!_closure(F, G, k) = ThreeMassSpring.FG(F, G, k, params_adjoint)
-# obj_fg = Optim.only_fg!(fg!_closure)
-# result_fg!_closure = Optim.optimize(obj_fg, [35.], Optim.LBFGS(), Optim.Options())
+params_adjoint, params_pred, params_true = ThreeMassSpring.setup_model();
+fg!_closure(F, G, k) = ThreeMassSpring.FG(F, G, k, params_adjoint)
+obj_fg = Optim.only_fg!(fg!_closure)
+result_fg!_closure = Optim.optimize(obj_fg, [35.], Optim.LBFGS(), Optim.Options())
