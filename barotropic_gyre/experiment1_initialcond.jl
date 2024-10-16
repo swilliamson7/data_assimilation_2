@@ -2,6 +2,7 @@ include("./ShallowWaters.jl/src/ShallowWaters.jl")
 
 using Plots, Enzyme
 using Checkpointing
+using Random
 
 function checkpointed_initcond(S, scheme)
 

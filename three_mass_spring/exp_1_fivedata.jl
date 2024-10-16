@@ -64,28 +64,6 @@ function exp_1_fivedata()
         ops
     )
 
-    ### not using Enzyme for entire derivative
-
-    # params_adjoint = mso_params(T=T, 
-    # x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    # u = 0.0 .* u,
-    # n = 0.001 .* randn(6, T+1), 
-    # q = q_kf,
-    # data_steps = data_steps,
-    # data = states_noisy,
-    # states = zeros(6, T+1),
-    # energy = zeros(3, T+1)
-    # )
-
-    # grad_descent(100, params_adjoint, ops)
-
-    # params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    # params_adjoint.states .= zeros(6, T+1)
-
-    # _ = run_adjoint(params_adjoint, 
-    #     ops
-    # )
-
     # with Enzyme
     diag = 1 / ops.Q[1,1]
     Q_inv = diag
