@@ -322,8 +322,8 @@ function run_ensemble_kf(N, Ndays)
             for k = 1:N
 
                 u_mat = u_vec_to_mat(Z[1:127*128, k], S_all[k])
-                v_mat = v_vec_to_mat(Z[(127*128+1):(127*128+1+127*128),k],S_all[k])
-                eta_mat = eta_vec_to_mat(Z[127*128+2+127*128:end,k], S_all[k])
+                v_mat = v_vec_to_mat(Z[127*128+1:(2*127*128),k],S_all[k])
+                eta_mat = eta_vec_to_mat(Z[(2*127*128)+1:end,k], S_all[k])
 
                 u,v,eta = ShallowWaters.add_halo(u_mat,v_mat,eta_mat,S_all[k])
 
