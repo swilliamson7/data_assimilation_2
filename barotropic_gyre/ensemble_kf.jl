@@ -174,6 +174,8 @@ function one_step_function(S)
     copyto!(v,v0)
     copyto!(η,η0)
 
+    return ShallowWaters.PrognosticVars{S.parameters.Tprog}(ShallowWaters.remove_halo(u,v,η,sst,S)...)
+
 end
 
 # This function will setup the ensemble Kalman filter method for the barotropic gyre. It takes as input:
@@ -206,14 +208,9 @@ function generate_data(Ndays)
 
     for t = 1:S_true.grid.nt
 
-        one_step_function(S_true)
+        P = one_step_function(S_true)
 
-        temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_true.Prog.u,
-        S_true.Prog.v,
-        S_true.Prog.η,
-        S_true.Prog.sst,S_true)...)
-
-        data[:, j] = u_mat_to_vec(temp.u)
+        data[:, j] = u_mat_to_vec(P.u)
 
     end
     
@@ -283,9 +280,12 @@ function run_ensemble_kf(N, Ndays)
 
     for t = 1:S_kf.grid.nt
 
+        P_all = []
+
         for n = 1:N
 
-            one_step_function(S_all[n])
+            p = one_step_function(S_all[n])
+            push!(P_all, p)
 
         end
 
@@ -298,13 +298,7 @@ function run_ensemble_kf(N, Ndays)
 
             for k = 1:N
 
-                temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_all[k].Prog.u,
-                S_all[k].Prog.v,
-                S_all[k].Prog.η,
-                S_all[k].Prog.sst,S_kf)...
-                )
-
-                Z[:, k] = [u_mat_to_vec(temp.u); v_mat_to_vec(temp.v); eta_mat_to_vec(temp.η)]
+                Z[:, k] = [u_mat_to_vec(P_all[k].u); v_mat_to_vec(P_all[k].v); eta_mat_to_vec(P_all[k].η)]
                 U[:, k] = Z[1:127*128, k]
 
             end
@@ -321,11 +315,11 @@ function run_ensemble_kf(N, Ndays)
 
             for k = 1:N
 
-                u_mat = u_vec_to_mat(Z[1:127*128, k], S_all[k])
-                v_mat = v_vec_to_mat(Z[127*128+1:(2*127*128),k],S_all[k])
-                eta_mat = eta_vec_to_mat(Z[(2*127*128)+1:end,k], S_all[k])
+                # u_mat = u_vec_to_mat(Z[1:127*128, k], S_all[k])
+                # v_mat = v_vec_to_mat(Z[127*128+1:(2*127*128),k],S_all[k])
+                # eta_mat = eta_vec_to_mat(Z[(2*127*128)+1:end,k], S_all[k])
 
-                u,v,eta = ShallowWaters.add_halo(u_mat,v_mat,eta_mat,S_all[k])
+                u,v,eta = ShallowWaters.add_halo(P_all[k].u,P_all[k].v,P_all[k].η,S_all[k])
 
                 S_all[k].Prog.u = u
                 S_all[k].Prog.v = v 
