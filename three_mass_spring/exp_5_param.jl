@@ -40,7 +40,6 @@ function integrate1(mso_struct::mso_params_ops)
         if t in data_steps
 
             mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * R_inv * (E * x - E * data[:, t])
-            # mso_struct.J = mso_struct.J + (E * x - E * data[:, t])' * (E * x - E * data[:, t])
 
         end
 
@@ -173,102 +172,147 @@ end
 
 # end
 
-function grad_descent1(M, params::mso_params_ops)
+# function grad_descent1(M, params::mso_params_ops)
 
-    T = params.T
+#     T = params.T
 
-    k_new = 0.0
-    params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    params.states .= zeros(6, T+1)
-    params.energy .= zeros(3, T+1)
-    params.J = 0.0
+#     k_new = 0.0
+#     params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+#     params.states .= zeros(6, T+1)
+#     params.energy .= zeros(3, T+1)
+#     params.J = 0.0
 
-    dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
+#     dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
+#     dparams.J = 1.0
+#     dparams.k = 0.
+#     dparams.r = 0.
+#     dparams.dt = 0.
+#     dparams.Q_inv = 0.
+
+#     print("Beginning grad descent\n")
+
+#     autodiff(Reverse, integrate1, Duplicated(params, dparams))
+
+#     if M == 0
+#         return
+#     end
+
+#     @show dparams.k
+
+#     k_new = params.k - (1 / norm(dparams.k)) * dparams.k
+
+#     @show k_new
+
+#     j = 1
+#     k_old = copy(params.k)
+#     k_grad_old = copy(dparams.k)
+#     params.k = k_new
+
+#     J_values = []
+#     push!(J_values, params.J)
+#     j_values = []
+#     push!(j_values, j)
+
+#     while norm(k_grad_old) > 500
+
+#         params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+#         params.states .= zeros(6, T+1)
+#         params.k = k_new
+#         params.J = 0.0
+#         params.energy .= zeros(3, T+1)
+
+#         dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
+#         dparams.J = 1.0
+#         dparams.k = 0.
+#         dparams.r = 0.
+#         dparams.dt = 0.
+#         dparams.Q_inv = 0.
+
+#         autodiff(Reverse, integrate1, Duplicated(params, dparams))
+
+#         print("Norm of the derivative\n") 
+#         @show norm(dparams.k)
+
+#         print("Current guess for k\n")
+#         @show params.k
+
+#         print("Objective value\n")
+#         @show params.J
+
+#         gamma = 0.0
+#         num = 0.0
+#         den = 0.0
+
+#         num = sum(dot(params.k - k_old, dparams.k - k_grad_old))
+#         den = norm(dparams.k - k_grad_old)^2
+
+#         gamma = (abs(num) / den)
+
+#         k_new = params.k - gamma * dparams.k
+
+#         k_old = copy(params.k)
+#         k_grad_old = copy(dparams.k)
+#         params.k = k_new
+
+#         dparams.k = 0.0
+
+#         j += 1
+
+#         push!(J_values, params.J)
+#         push!(j_values, j)
+
+#         if j > M
+#             break
+#         end
+
+#     end
+
+#     return params, j_values, J_values
+
+# end
+
+function cost_eval(k_guess, params_adjoint)
+
+    T = params_adjoint.T
+    params_adjoint.k = k_guess[1]
+    params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    params_adjoint.states .= zeros(6, T+1)
+    params_adjoint.J = 0.0
+    params_adjoint.energy .= zeros(3, T+1)
+
+    integrate1(params_adjoint)
+
+    return params_adjoint.J
+
+end
+
+function gradient_eval(G, k_guess, params_adjoint)
+
+    T = params_adjoint.T
+
+    params_adjoint.k = k_guess[1]
+    params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    params_adjoint.states .= zeros(6, T+1)
+    params_adjoint.J = 0.0
+    params_adjoint.energy .= zeros(3, T+1)
+
+    dparams = Enzyme.Compiler.make_zero(Core.Typeof(params_adjoint), IdDict(), params_adjoint)
     dparams.J = 1.0
     dparams.k = 0.
     dparams.r = 0.
     dparams.dt = 0.
     dparams.Q_inv = 0.
 
-    print("Beginning grad descent\n")
+    autodiff(Reverse, ThreeMassSpring.integrate1, Duplicated(params_adjoint, dparams))
 
-    autodiff(Reverse, integrate1, Duplicated(params, dparams))
+    G[1] = dparams.k
 
-    if M == 0
-        return
-    end
+end
 
-    @show dparams.k
+function FG(F, G, k_guess, params_adjoint)
 
-    k_new = params.k - (1 / norm(dparams.k)) * dparams.k
-
-    @show k_new
-
-    j = 1
-    k_old = copy(params.k)
-    k_grad_old = copy(dparams.k)
-    params.k = k_new
-
-    J_values = []
-    push!(J_values, params.J)
-    j_values = []
-    push!(j_values, j)
-
-    while norm(k_grad_old) > 500
-
-        params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        params.states .= zeros(6, T+1)
-        params.k = k_new
-        params.J = 0.0
-        params.energy .= zeros(3, T+1)
-
-        dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
-        dparams.J = 1.0
-        dparams.k = 0.
-        dparams.r = 0.
-        dparams.dt = 0.
-        dparams.Q_inv = 0.
-
-        autodiff(Reverse, integrate1, Duplicated(params, dparams))
-
-        print("Norm of the derivative\n") 
-        @show norm(dparams.k)
-
-        print("Current guess for k\n")
-        @show params.k
-
-        print("Objective value\n")
-        @show params.J
-
-        gamma = 0.0
-        num = 0.0
-        den = 0.0
-
-        num = sum(dot(params.k - k_old, dparams.k - k_grad_old))
-        den = norm(dparams.k - k_grad_old)^2
-
-        gamma = (abs(num) / den)
-
-        k_new = params.k - gamma * dparams.k
-
-        k_old = copy(params.k)
-        k_grad_old = copy(dparams.k)
-        params.k = k_new
-
-        dparams.k = 0.0
-
-        j += 1
-
-        push!(J_values, params.J)
-        push!(j_values, j)
-
-        if j > M
-            break
-        end
-
-    end
-
-    return params, j_values, J_values
+    G === nothing || gradient_eval(G, k_guess, params_adjoint)
+    F === nothing || return cost_eval(k_guess, params_adjoint)
 
 end
 
@@ -281,7 +325,6 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
     ###########################################
     q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function
     q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
-    # q_kf(t) = q_true(t)
     ###########################################
 
     data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
@@ -332,7 +375,7 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
 
     # assuming random forcing on position of mass one
     ops_true.Gamma[1,1] = 1.0
-    ops_pred.Gamma[1, 1] = 1.0
+    ops_pred.Gamma[1,1] = 1.0
 
     # pure prediction model
     _ = ThreeMassSpring.create_data(params_pred, ops_pred)
@@ -347,7 +390,6 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
     # R_inv = ops_pred.E
     ###############################
 
-
     params_kf = mso_params(T=T,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
@@ -360,12 +402,12 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
         energy = zeros(3, T+1)
     )
 
-    uncertainty = run_kalman_filter(
+    uncertainty = ThreeMassSpring.run_kalman_filter(
         params_kf,
         ops_pred
     )
 
-    params_adjoint = mso_params_ops(T=T,
+    params_adjoint = ThreeMassSpring.mso_params_ops(T=T,
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
@@ -389,10 +431,11 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
         Kc = ops_pred.Kc
     )
 
-    ################# Handwritten gradient descent
+    fg!_closure(F, G, k) = ThreeMassSpring.FG(F, G, k, params_adjoint)
+    obj_fg = Optim.only_fg!(fg!_closure)
+    result = Optim.optimize(obj_fg, [k_guess], Optim.LBFGS(), Optim.Options())
 
-    params_adjoint, _, _ = grad_descent1(optm_steps, params_adjoint)
-    @show params_adjoint.k
+    @show result.minimizer
 
     # plot of displacement
     fixed_pos = plot(params_true.states[2,:],

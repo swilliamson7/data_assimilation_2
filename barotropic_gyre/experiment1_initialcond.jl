@@ -1,8 +1,54 @@
-include("./ShallowWaters.jl/src/ShallowWaters.jl")
+"""
+This function will setup the ensemble Kalman filter method for the barotropic gyre. It takes as input:
+    Ndays - how long to run the intergration/data assimilation process for
+    data_steps - timesteps where data will be incorporated
+    sigma_data - the standard deviation of noise added to the data
+"""
+function generate_data(Ndays, data_steps, data_spots, sigma_data)
 
-using Plots, Enzyme
-using Checkpointing
-using Random
+    # Create the "true" model, from this we'll make data
+    S_true = ShallowWaters.model_setup(
+        output=false,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        seasonal_wind_x=false,
+        tracer_advection=false,
+        tracer_relaxation=false,
+        topography="flat",
+        bc="nonperiodic",
+        α=2,
+        nx=128,
+        Ndays = Ndays,
+        data_steps = data_steps,
+        initial_cond="ncfile",
+        initpath="./data_files_forkf/128_spinup_noforcing/"
+    )
+
+    data = zeros(length(data_spots), length(S_true.parameters.data_steps))
+    true_states = []
+    j = 1
+
+    for t = 1:S_true.grid.nt
+
+        P = one_step_function(S_true)
+
+        if t ∈ 30*225:30*225:S_true.grid.nt
+            push!(true_states, P)
+        end
+
+        if t ∈ S_true.parameters.data_steps
+            temp = u_mat_to_vec(P.u)
+            data[:, S_true.parameters.j] = temp[data_spots] .+ sigma_data .* randn(length(data_spots))
+        end
+
+    end
+
+    return data, true_states
+
+end
 
 function checkpointed_initcond(S, scheme)
 
@@ -59,7 +105,6 @@ end
 function loop(S,scheme)
 
     @checkpoint_struct scheme S for S.parameters.i = 1:S.grid.nt
-    # for S.parameters.i = 1:S.grid.nt
 
         Diag = S.Diag
         Prog = S.Prog
@@ -88,7 +133,6 @@ function loop(S,scheme)
         copyto!(u1,u)
         copyto!(v1,v)
         copyto!(η1,η)
-
 
         if compensated
             fill!(du_sum,zero(Tprog))
@@ -183,20 +227,11 @@ function loop(S,scheme)
             S.Prog.η,
             S.Prog.sst,S)...)
 
-            eta_avg = eta_avg + temp.η[50,50]
+            tempu = u_mat_to_vec(temp.u)
 
-            S.parameters.J += sum(((eta_avg / S.parameters.i) - S.parameters.data[50, 50, S.parameters.j]).^2)
+            S.parameters.J += sum((tempu - data[:, S.parameters.j]).^2)
 
             S.parameters.j += 1
-
-        else
-
-            temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S.Prog.u,
-            S.Prog.v,
-            S.Prog.η,
-            S.Prog.sst,S)...)
-
-            eta_avg = eta_avg + temp.η[50, 50]
 
         end
 
@@ -210,3 +245,72 @@ function loop(S,scheme)
     return nothing
 
 end
+
+function run_kf()
+
+    N = 3
+    Ndays = 3*365
+
+    S = ShallowWaters.model_setup(
+        output=false,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        tracer_advection=false,
+        tracer_relaxation=false,
+        seasonal_wind_x=false,
+        topography="flat",
+        bc="nonperiodic",
+        α=2,
+        nx=128,
+        Ndays = Ndays,
+        initial_cond="ncfile",
+        initpath="./data_files_forkf/128_spinup_noforcing/"
+    )
+
+    sigma_data = 0.8
+    sigma_initcond = 0.9
+    data_steps = 6733:6733:6733*24
+    data_spots = 5:100:128*127
+
+    data, true_states = generate_data(Ndays, data_steps, data_spots, sigma_data)
+
+    S_kf_all, Progkf_all = run_ensemble_kf(N,
+        Ndays,
+        data,
+        data_steps,
+        data_spots,
+        sigma_initcond,
+        sigma_data
+    )
+
+    return data_spots, true_states, S_kf_all, Progkf_all
+
+end
+
+function run_adjoint()
+
+
+end
+
+data_spots, true_states, S_kf_all, Progkf_all = run_kf()
+
+heatmap((true_states[1].u' - Progkf_all[1][1].u'),
+c=:balance,
+clim=(-.5, .5))
+
+energy_true = zeros(24)
+energy_kf = zeros(24)
+
+for j = 1:24
+
+    energy_true[j] = (sum(true_states[j].u.^2) + sum(true_states[j].v.^2)) / 128^2
+    energy_kf[j] = (sum(Progkf_all[j][3].u.^2) + sum(Progkf_all[j][3].v.^2)) / 128^2
+
+end
+plot(energy_true)
+plot!(energy_kf)
+
+# heatmap(true_states[12].u)

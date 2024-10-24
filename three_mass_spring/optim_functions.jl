@@ -162,31 +162,31 @@ function FG(F, G, k_guess, params_adjoint)
 
 end
 
-function cost_gradient(F, G, k_guess, params_adjoint)
+# function cost_gradient(F, G, k_guess, params_adjoint)
 
-    T = params_adjoint.T
+#     T = params_adjoint.T
 
-    params_adjoint.k = k_guess[1]
-    params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    params_adjoint.states .= zeros(6, T+1)
-    params_adjoint.J = 0.0
-    params_adjoint.energy .= zeros(3, T+1)
+#     params_adjoint.k = k_guess[1]
+#     params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+#     params_adjoint.states .= zeros(6, T+1)
+#     params_adjoint.J = 0.0
+#     params_adjoint.energy .= zeros(3, T+1)
 
-    dparams = Enzyme.Compiler.make_zero(Core.Typeof(params_adjoint), IdDict(), params_adjoint)
-    dparams.J = 1.0
-    dparams.k = 0.
-    dparams.r = 0.
-    dparams.dt = 0.
-    dparams.Q_inv = 0.
+#     dparams = Enzyme.Compiler.make_zero(Core.Typeof(params_adjoint), IdDict(), params_adjoint)
+#     dparams.J = 1.0
+#     dparams.k = 0.
+#     dparams.r = 0.
+#     dparams.dt = 0.
+#     dparams.Q_inv = 0.
 
-    autodiff(Reverse, integrate1, Duplicated(params_adjoint, dparams))
+#     autodiff(Reverse, integrate1, Duplicated(params_adjoint, dparams))
 
-    F[1] = params_adjoint.J
-    G[1] = dparams.k
+#     F[1] = params_adjoint.J
+#     G[1] = dparams.k
 
-    return nothing
+#     return nothing
 
-end
+# end
 
 # without gradient, seems to work
 # params_adjoint, params_pred, params_true = ThreeMassSpring.setup_model()
@@ -204,4 +204,4 @@ end
 params_adjoint, params_pred, params_true = ThreeMassSpring.setup_model();
 fg!_closure(F, G, k) = ThreeMassSpring.FG(F, G, k, params_adjoint)
 obj_fg = Optim.only_fg!(fg!_closure)
-result_fg!_closure = Optim.optimize(obj_fg, [35.], Optim.LBFGS(), Optim.Options())
+result = Optim.optimize(obj_fg, [27.], Optim.LBFGS(), Optim.Options(show_trace=true))

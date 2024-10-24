@@ -93,9 +93,9 @@ function exp_1_fivedata()
 
     dparams_adjoint = grad_descent(100, params_adjoint, [1.,0.,0.,0.,0.,0.])
 
-    ## plots for exp 1 
+    ## plots for exp 1
 
-    # plot of the position of mass one 
+    # plot of the position of mass one
     mass_1_pos = plot(params_true.states[1,:],
     label = L"x_1(t)"
     )

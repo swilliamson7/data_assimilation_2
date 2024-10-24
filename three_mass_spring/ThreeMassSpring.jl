@@ -2,7 +2,6 @@ module ThreeMassSpring
 
 using Plots, Enzyme, LinearAlgebra, Statistics, Random
 using Parameters, UnPack, LaTeXStrings
-using Checkpointing
 using Optim
 
 # Chosen random seed 649, will be used for all experiments 
