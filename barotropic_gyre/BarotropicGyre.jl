@@ -1,9 +1,7 @@
-module BarotropicGyre
+using Checkpointing
+using Enzyme
 
-using Checkpointing#main
-using Enzyme#main
-
-using Plots, LinearAlgebra, Statistics, Random
+using CairoMakie, LinearAlgebra, Statistics, Random
 using Parameters, UnPack, LaTeXStrings
 using Optim
 using ShallowWaters
@@ -11,7 +9,6 @@ using ShallowWaters
 # Chosen random seed 649, will be used for all experiments 
 Random.seed!(649)
 
+include("helper_functions.jl")
 include("ensemble_kf.jl")
 include("experiment1_initialcond.jl")
-
-end
