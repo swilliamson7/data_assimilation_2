@@ -14,14 +14,14 @@ function cost_eval(param_guess; data, kwargs...)
 
 end
 
-function gradient_eval(G, param_guess; kwargs...)
+function gradient_eval(G, param_guess, data, data_spots; kwargs...)
 
     P = ShallowWaters.Parameter(T=Float32;kwargs...)
     S = ShallowWaters.model_setup(P)
 
     S.Prog.u = reshape(param_guess[1:17292], 131, 132)
-    S.Prog.v = reshape(param_guess[17293:34585], 132, 131)
-    S.Prog.η = reshape(param_guess[34586:end], 130, 130)
+    S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
+    S.Prog.η = reshape(param_guess[34585:end], 130, 130)
 
     dS = Enzyme.Compiler.make_zero(S)
     snaps = Int(floor(sqrt(S.grid.nt)))
@@ -34,7 +34,16 @@ function gradient_eval(G, param_guess; kwargs...)
         write_checkpoints_period = 224
     )
 
-    autodiff(Enzyme.ReverseWithPrimal, checkpointed_initcond, Duplicated(S, dS))
+    ddata = Enzyme.make_zero(data)
+    ddata_spots = Enzyme.make_zero(data_spots)
+
+    autodiff(Enzyme.ReverseWithPrimal, integrate,
+    Duplicated(S_adj, dS),
+    Duplicated(data, ddata),
+    Duplicated(data_spots, ddata_spots)
+    )
+
+    # autodiff(Enzyme.ReverseWithPrimal, checkpointed_initcond, Duplicated(S, dS))
 
     G = [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η)]
 

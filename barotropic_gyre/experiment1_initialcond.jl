@@ -4,36 +4,6 @@ This function will setup the ensemble Kalman filter method for the barotropic gy
     data_steps - timesteps where data will be incorporated
     sigma_data - the standard deviation of noise added to the data
 """
-function generate_data(data_spots, sigma_data; kwargs...)
-
-    # Create the "true" model, from this we'll make data
-    P = ShallowWaters.Parameter(T=Float32; kwargs...)
-    S_true = ShallowWaters.model_setup(P)
-
-    data = zeros(length(data_spots), length(S_true.parameters.data_steps))
-    true_states = []
-    j = 1
-
-    for t = 1:S_true.grid.nt
-
-        P = one_step_function(S_true)
-
-        if t ∈ 30*225:30*225:S_true.grid.nt
-            push!(true_states, P)
-        end
-
-        if t ∈ S_true.parameters.data_steps
-            temp = u_mat_to_vec(P.u)
-            data[:, j] = temp[data_spots] .+ sigma_data .* randn(length(data_spots))
-            j += 1
-        end
-
-    end
-
-    return data, true_states
-
-end
-
 function checkpointed_initcond(S, scheme, data, data_spots)
 
     # setup
@@ -87,6 +57,8 @@ function checkpointed_initcond(S, scheme, data, data_spots)
 end
 
 function loop(S,scheme, data, data_spots)
+
+    j = 1
 
     @checkpoint_struct scheme S for S.parameters.i = 1:S.grid.nt
 
@@ -211,11 +183,11 @@ function loop(S,scheme, data, data_spots)
             S.Prog.η,
             S.Prog.sst,S)...)
 
-            tempu = u_mat_to_vec(temp.u)
+            tempu = u_mat_to_vec(temp.u)[data_spots]
 
-            S.parameters.J += sum((tempu[data_spots] - data[:, S.parameters.j]).^2)
+            S.parameters.J += sum((tempu - data[:, j]).^2)
 
-            S.parameters.j += 1
+            j += 1
 
         end
 
@@ -358,7 +330,6 @@ function integrate(S, data, data_spots)
             ShallowWaters.dambmc!(dη_comp,η0,η,dη_sum)
         end
 
-
         ShallowWaters.ghost_points!(u0,v0,η0,S)
 
         # type conversion for mixed precision
@@ -400,9 +371,9 @@ function integrate(S, data, data_spots)
             S.Prog.η,
             S.Prog.sst,S)...)
 
-            tempu = u_mat_to_vec(temp.u)
+            tempu = u_mat_to_vec(temp.u)[data_spots]
 
-            S.parameters.J += sum((tempu[data_spots] - data[:, j]).^2)
+            S.parameters.J += sum((tempu - data[:, j]).^2)
 
             j += 1
 
@@ -416,6 +387,44 @@ function integrate(S, data, data_spots)
     end
 
     return S.parameters.J
+
+end
+
+function finite_difference_only(dS,data,data_spots,x_coord,y_coord;kwargs...)
+
+    enzyme_deriv = dS[x_coord + y_coord]
+
+    steps = [50, 40, 30, 20, 10, 1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9]
+
+    P = ShallowWaters.Parameter(T=dS.parameters.T;kwargs...)
+    S_outer = ShallowWaters.model_setup(P)
+
+    snaps = Int(floor(sqrt(S_outer.grid.nt)))
+    revolve = Revolve{ShallowWaters.ModelSetup}(S_outer.grid.nt, snaps;
+        verbose=1,
+        gc=true,
+        write_checkpoints=false
+    )
+
+    J_outer = integrate(S_outer, data, data_spots)
+
+    diffs = []
+
+    for s in steps
+
+        P = ShallowWaters.Parameter(T=dS.parameters.T;kwargs...)
+        S_inner = ShallowWaters.model_setup(P)
+
+        S_inner.Prog.u[x_coord, y_coord] += s
+
+        # J_inner = checkpointed_integration(S_inner, revolve)
+        J_inner = integrate(S_inner,data,data_spots)
+
+        push!(diffs, (J_inner - J_outer) / s)
+
+    end
+
+    return diffs, enzyme_deriv
 
 end
 
@@ -437,7 +446,7 @@ function run_kf(N, data_spots, sigma_initcond, sigma_data;
 
 end
 
-function run_adjoint(sigma_initcond, sigma_data, data_spots;kwargs...)
+function run_adjoint(sigma_initcond, sigma_data, data_spots; kwargs...)
 
     data, true_states = generate_data(data_spots, sigma_data; kwargs...)
     P = ShallowWaters.Parameter(T=Float32;kwargs...)
@@ -457,14 +466,17 @@ function run_adjoint(sigma_initcond, sigma_data, data_spots;kwargs...)
     P_adj.η = P_adj.η + sigma_initcond .* randn(size(P_adj.η))
 
     uic,vic,etaic = ShallowWaters.add_halo(P_adj.u,P_adj.v,P_adj.η,P_adj.sst,S_adj)
-
     param_guess = [vec(uic); vec(vic); vec(etaic)]
 
-    J = cost_eval(param_guess; data, kwargs...)
+    # J = cost_eval(param_guess; data, kwargs...)
 
-    # dS = Enzyme.Compiler.make_zero(S)
-    # snaps = Int(floor(sqrt(S.grid.nt)))
-    # revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
+    dS = Enzyme.Compiler.make_zero(S_adj)
+    G = [vec(dS.Prog.u);vec(dS.Prog.v); vec(dS.Prog.η)]
+
+    gradient_eval(G, param_guess, data, data_spots; kwargs...)
+
+    # snaps = Int(floor(sqrt(S_adj.grid.nt)))
+    # revolve = Revolve{ShallowWaters.ModelSetup}(S_adj.grid.nt,
     #     snaps;
     #     verbose=1,
     #     gc=true,
@@ -473,18 +485,25 @@ function run_adjoint(sigma_initcond, sigma_data, data_spots;kwargs...)
     #     write_checkpoints_period = 224
     # )
 
-    # autodiff(Enzyme.ReverseWithPrimal, checkpointed_initcond, Duplicated(S, dS))
+    # ddata = Enzyme.make_zero(data)
+    # ddata_spots = Enzyme.make_zero(data_spots)
 
-    return J, P_adj, true_states, S_adj, data
+    # autodiff(Enzyme.ReverseWithPrimal, integrate,
+    #     Duplicated(S_adj, dS),
+    #     Duplicated(data, ddata),
+    #     Duplicated(data_spots, ddata_spots)
+    # )
+
+    return S_adj, G, true_states, data
 
 end
 
 N = 3
-sigma_data = 0.8
-sigma_initcond = 0.9
-data_steps = 6733:6733:6733*24
+sigma_data = 0.5
+sigma_initcond = 0.0
+data_steps = 6733:6733:6733*2
 data_spots = 5:100:128*127
-Ndays = 3*365
+Ndays = 30
 
 # data_spots, true_states, S_kf_all, Progkf_all = run_kf(N,
 #     data_spots,
@@ -509,7 +528,27 @@ Ndays = 3*365
 #     initpath="./data_files_forkf/128_spinup_noforcing/"
 # )
 
-J, P_adj, true_states, S_adj, data = run_adjoint(0.0, 0.0, data_spots,
+S_adj, dS, true_states, data = run_adjoint(sigma_initcond, sigma_data, data_spots,
+    output=false,
+    L_ratio=1,
+    g=9.81,
+    H=500,
+    wind_forcing_x="double_gyre",
+    Lx=3840e3,
+    tracer_advection=false,
+    tracer_relaxation=false,
+    seasonal_wind_x=false,
+    data_steps=data_steps,
+    topography="flat",
+    bc="nonperiodic",
+    α=2,
+    nx=128,
+    Ndays=Ndays,
+    initial_cond="ncfile",
+    initpath="./data_files_forkf/128_spinup_noforcing/"
+);
+
+diffs, enzyme_deriv = finite_difference_only(dS, data, data_spots, 72, 64,
     output=false,
     L_ratio=1,
     g=9.81,
