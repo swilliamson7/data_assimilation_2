@@ -390,44 +390,6 @@ function integrate(S, data, data_spots)
 
 end
 
-function finite_difference_only(dS,data,data_spots,x_coord,y_coord;kwargs...)
-
-    enzyme_deriv = dS[x_coord + y_coord]
-
-    steps = [50, 40, 30, 20, 10, 1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9]
-
-    P = ShallowWaters.Parameter(T=dS.parameters.T;kwargs...)
-    S_outer = ShallowWaters.model_setup(P)
-
-    snaps = Int(floor(sqrt(S_outer.grid.nt)))
-    revolve = Revolve{ShallowWaters.ModelSetup}(S_outer.grid.nt, snaps;
-        verbose=1,
-        gc=true,
-        write_checkpoints=false
-    )
-
-    J_outer = integrate(S_outer, data, data_spots)
-
-    diffs = []
-
-    for s in steps
-
-        P = ShallowWaters.Parameter(T=dS.parameters.T;kwargs...)
-        S_inner = ShallowWaters.model_setup(P)
-
-        S_inner.Prog.u[x_coord, y_coord] += s
-
-        # J_inner = checkpointed_integration(S_inner, revolve)
-        J_inner = integrate(S_inner,data,data_spots)
-
-        push!(diffs, (J_inner - J_outer) / s)
-
-    end
-
-    return diffs, enzyme_deriv
-
-end
-
 function run_kf(N, data_spots, sigma_initcond, sigma_data;
     kwargs...
     )
@@ -466,41 +428,31 @@ function run_adjoint(sigma_initcond, sigma_data, data_spots; kwargs...)
     P_adj.η = P_adj.η + sigma_initcond .* randn(size(P_adj.η))
 
     uic,vic,etaic = ShallowWaters.add_halo(P_adj.u,P_adj.v,P_adj.η,P_adj.sst,S_adj)
+    S_adj.Prog.u = uic
+    S_adj.Prog.v = vic
+    S_adj.Prog.η = etaic
     param_guess = [vec(uic); vec(vic); vec(etaic)]
 
-    # J = cost_eval(param_guess; data, kwargs...)
+    # J = cost_eval(param_guess, data, data_spots)
 
-    dS = Enzyme.Compiler.make_zero(S_adj)
-    G = [vec(dS.Prog.u);vec(dS.Prog.v); vec(dS.Prog.η)]
+    # dS = Enzyme.Compiler.make_zero(S_adj)
+    # temp = [vec(dS.Prog.u);vec(dS.Prog.v); vec(dS.Prog.η)]
 
-    gradient_eval(G, param_guess, data, data_spots; kwargs...)
+    # G = zeros(length(temp))
 
-    # snaps = Int(floor(sqrt(S_adj.grid.nt)))
-    # revolve = Revolve{ShallowWaters.ModelSetup}(S_adj.grid.nt,
-    #     snaps;
-    #     verbose=1,
-    #     gc=true,
-    #     write_checkpoints=false,
-    #     write_checkpoints_filename = "",
-    #     write_checkpoints_period = 224
-    # )
+    gradient_eval(G, param_guess, data, data_spots)
 
-    # ddata = Enzyme.make_zero(data)
-    # ddata_spots = Enzyme.make_zero(data_spots)
+    # fg!_closure(F, G, ic) = FG(F, G, ic, data, data_spots)
+    # obj_fg = Optim.only_fg!(fg!_closure)
+    # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true))
 
-    # autodiff(Enzyme.ReverseWithPrimal, integrate,
-    #     Duplicated(S_adj, dS),
-    #     Duplicated(data, ddata),
-    #     Duplicated(data_spots, ddata_spots)
-    # )
-
-    return S_adj, G, true_states, data
+    return G, S_adj, data
 
 end
 
 N = 3
-sigma_data = 0.5
-sigma_initcond = 0.0
+sigma_data = 0.01
+sigma_initcond = 0.01
 data_steps = 6733:6733:6733*2
 data_spots = 5:100:128*127
 Ndays = 30
@@ -528,7 +480,7 @@ Ndays = 30
 #     initpath="./data_files_forkf/128_spinup_noforcing/"
 # )
 
-S_adj, dS, true_states, data = run_adjoint(sigma_initcond, sigma_data, data_spots,
+G, S_adj, data = run_adjoint(sigma_initcond, sigma_data, data_spots,
     output=false,
     L_ratio=1,
     g=9.81,
@@ -548,40 +500,71 @@ S_adj, dS, true_states, data = run_adjoint(sigma_initcond, sigma_data, data_spot
     initpath="./data_files_forkf/128_spinup_noforcing/"
 );
 
-diffs, enzyme_deriv = finite_difference_only(dS, data, data_spots, 72, 64,
-    output=false,
-    L_ratio=1,
-    g=9.81,
-    H=500,
-    wind_forcing_x="double_gyre",
-    Lx=3840e3,
-    tracer_advection=false,
-    tracer_relaxation=false,
-    seasonal_wind_x=false,
-    data_steps=data_steps,
-    topography="flat",
-    bc="nonperiodic",
-    α=2,
-    nx=128,
-    Ndays=Ndays,
-    initial_cond="ncfile",
-    initpath="./data_files_forkf/128_spinup_noforcing/"
-)
+########################################################################
+# Derivative check
 
-# heatmap((true_states[1].u' - Progkf_all[1][1].u'),
-# c=:balance,
-# clim=(-.5, .5))
+# function finite_difference_only(data_spots,x_coord,y_coord;kwargs...)
 
-# energy_true = zeros(24)
-# energy_kf = zeros(24)
+#     data, true_states = generate_data(data_spots, sigma_data; kwargs...)
+#     P1 = ShallowWaters.Parameter(T=Float32;kwargs...)
 
-# for j = 1:24
+#     S_outer = ShallowWaters.model_setup(P1)
 
-#     energy_true[j] = (sum(true_states[j].u.^2) + sum(true_states[j].v.^2)) / 128^2
-#     energy_kf[j] = (sum(Progkf_all[j][3].u.^2) + sum(Progkf_all[j][3].v.^2)) / 128^2
+#     dS_outer = Enzyme.Compiler.make_zero(S_outer)
+
+#     ddata = Enzyme.make_zero(data)
+#     ddata_spots = Enzyme.make_zero(data_spots)
+
+#     autodiff(Enzyme.ReverseWithPrimal, integrate,
+#         Duplicated(S_outer, dS_outer),
+#         Duplicated(data,ddata),
+#         Duplicated(data_spots, ddata_spots)
+#     )
+
+#     enzyme_deriv = dS_outer.Prog.u[x_coord, y_coord]
+
+#     steps = [50, 40, 30, 20, 10, 1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9]
+
+#     P2 = ShallowWaters.Parameter(T=Float32;kwargs...)
+#     S = ShallowWaters.model_setup(P2)
+#     J_outer = integrate(S, data, data_spots)
+
+#     diffs = []
+
+#     for s in steps
+
+#         P = ShallowWaters.Parameter(T=Float32;kwargs...)
+#         S_inner = ShallowWaters.model_setup(P)
+
+#         S_inner.Prog.u[x_coord, y_coord] += s
+
+#         # J_inner = checkpointed_integration(S_inner, revolve)
+#         J_inner = integrate(S_inner,data,data_spots)
+
+#         push!(diffs, (J_inner - J_outer) / s)
+
+#     end
+
+#     return diffs, enzyme_deriv
 
 # end
-# plot(energy_true)
-# plot!(energy_kf)
 
-# # heatmap(true_states[12].u)
+# diffs, enzyme_deriv = finite_difference_only(data_spots, 72, 64;
+#     output=false,
+#     L_ratio=1,
+#     g=9.81,
+#     H=500,
+#     wind_forcing_x="double_gyre",
+#     Lx=3840e3,
+#     tracer_advection=false,
+#     tracer_relaxation=false,
+#     seasonal_wind_x=false,
+#     data_steps=data_steps,
+#     topography="flat",
+#     bc="nonperiodic",
+#     α=2,
+#     nx=128,
+#     Ndays=Ndays,
+#     initial_cond="ncfile",
+#     initpath="./data_files_forkf/128_spinup_noforcing/"
+# )
