@@ -1,5 +1,3 @@
-module ThreeMassSpring
-
 using Plots, Enzyme, LinearAlgebra, Statistics, Random
 using Parameters, UnPack, LaTeXStrings
 using Optim
@@ -18,7 +16,5 @@ include("exp_3_obsofavg.jl")
 include("exp_4_fixedpos.jl")
 include("exp_5_param.jl")
 include("exp_6_param_forcing.jl")
-# include("optim_functions.jl")
+include("optim_functions.jl")
 # include("optim_test_param.jl")
-
-end

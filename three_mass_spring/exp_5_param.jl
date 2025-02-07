@@ -9,7 +9,7 @@ function integrate1(mso_struct::mso_params_ops)
 
     states[:,1] .= x
 
-    kin, ptl, total = ThreeMassSpring.compute_energy(states[:,1], Kc)
+    kin, ptl, total = compute_energy(states[:,1], Kc)
     energy[:,1] = [kin;ptl;total]
 
     Ac = zeros(6,6)
@@ -43,7 +43,7 @@ function integrate1(mso_struct::mso_params_ops)
 
         end
 
-        kin, ptl, total = ThreeMassSpring.compute_energy(x, Kc)
+        kin, ptl, total = compute_energy(x, Kc)
         energy[:,t] = [kin;ptl;total]
 
     end
@@ -303,7 +303,7 @@ function gradient_eval(G, k_guess, params_adjoint)
     dparams.dt = 0.
     dparams.Q_inv = 0.
 
-    autodiff(Reverse, ThreeMassSpring.integrate1, Duplicated(params_adjoint, dparams))
+    autodiff(Reverse, integrate1, Duplicated(params_adjoint, dparams))
 
     G[1] = dparams.k
 
@@ -337,7 +337,7 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
     u = zeros(6, T+1)
     u[1, :] .= rand_forcing
 
-    params_true = ThreeMassSpring.mso_params(T = T,
+    params_true = mso_params(T = T,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
         k = 30,
@@ -349,7 +349,7 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
         energy = zeros(3, T+1)
     )
 
-    params_pred = ThreeMassSpring.mso_params(T = T,
+    params_pred = mso_params(T = T,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         q = q_kf,
         u = u,
@@ -360,8 +360,8 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
         energy = zeros(3, T+1)
     )
 
-    ops_true = ThreeMassSpring.build_ops(params_true)
-    ops_pred = ThreeMassSpring.build_ops(params_pred)
+    ops_true = build_ops(params_true)
+    ops_pred = build_ops(params_pred)
 
     # assuming data of all positions and velocities -> E is the identity operator
     ops_true.E .= Diagonal(ones(6))
@@ -378,9 +378,9 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
     ops_pred.Gamma[1,1] = 1.0
 
     # pure prediction model
-    _ = ThreeMassSpring.create_data(params_pred, ops_pred)
+    _ = create_data(params_pred, ops_pred)
 
-    states_noisy = ThreeMassSpring.create_data(params_true, ops_true)
+    states_noisy = create_data(params_true, ops_true)
 
     diag = 0.0
     Q_inv = diag
@@ -402,12 +402,12 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
         energy = zeros(3, T+1)
     )
 
-    uncertainty = ThreeMassSpring.run_kalman_filter(
+    uncertainty = run_kalman_filter(
         params_kf,
         ops_pred
     )
 
-    params_adjoint = ThreeMassSpring.mso_params_ops(T=T,
+    params_adjoint = mso_params_ops(T=T,
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
@@ -431,7 +431,7 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
         Kc = ops_pred.Kc
     )
 
-    fg!_closure(F, G, k) = ThreeMassSpring.FG(F, G, k, params_adjoint)
+    fg!_closure(F, G, k) = FG(F, G, k, params_adjoint)
     obj_fg = Optim.only_fg!(fg!_closure)
     result = Optim.optimize(obj_fg, [k_guess], Optim.LBFGS(), Optim.Options())
 
