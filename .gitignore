@@ -1,6 +1,5 @@
 
 for_debugging/
-*.png
 three_mass_spring/Enzyme.jl/
 *.txt
 *.nc
