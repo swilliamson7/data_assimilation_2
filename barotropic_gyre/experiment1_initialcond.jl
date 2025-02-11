@@ -1,10 +1,4 @@
-"""
-This function will setup the ensemble Kalman filter method for the barotropic gyre. It takes as input:
-    Ndays - how long to run the intergration/data assimilation process for
-    data_steps - timesteps where data will be incorporated
-    sigma_data - the standard deviation of noise added to the data
-"""
-function checkpointed_initcond(S, scheme, data, data_spots)
+function exp1_cpintegrate(S, scheme, data, data_spots)
 
     # setup
     Diag = S.Diag
@@ -50,13 +44,13 @@ function checkpointed_initcond(S, scheme, data, data_spots)
     copyto!(Diag.SemiLagrange.sst_ref,sst)
 
     # run integration loop with checkpointing
-    loop(S, scheme, data, data_spots)
+    exp1_loop(S, scheme, data, data_spots)
 
     return S.parameters.J
 
 end
 
-function loop(S,scheme, data, data_spots)
+function exp1_loop(S, scheme, data, data_spots)
 
     j = 1
 
@@ -202,7 +196,7 @@ function loop(S,scheme, data, data_spots)
 
 end
 
-function integrate(S, data, data_spots)
+function exp1_integrate(S, data, data_spots)
 
     # setup
     Diag = S.Diag
@@ -373,7 +367,7 @@ function integrate(S, data, data_spots)
 
             tempu = u_mat_to_vec(temp.u)[data_spots]
 
-            S.parameters.J += sum((tempu - data[:, j]).^2)
+            S.parameters.J = S.parameters.J + sum((tempu - data[:, j]).^2)
 
             j += 1
 
@@ -386,7 +380,108 @@ function integrate(S, data, data_spots)
 
     end
 
+    @show S.parameters.J
     return S.parameters.J
+
+end
+
+function exp1_cost_eval(param_guess, data, data_spots)
+
+    P = ShallowWaters.Parameter(T=Float32;
+    output=false,
+    L_ratio=1,
+    g=9.81,
+    H=500,
+    wind_forcing_x="double_gyre",
+    Lx=3840e3,
+    tracer_advection=false,
+    tracer_relaxation=false,
+    seasonal_wind_x=false,
+    data_steps=data_steps,
+    topography="flat",
+    bc="nonperiodic",
+    α=2,
+    nx=128,
+    Ndays=Ndays,
+    initial_cond="ncfile",
+    initpath="./data_files_forkf/128_spinup_noforcing/"
+    )
+    S = ShallowWaters.model_setup(P)
+
+    S.Prog.u = reshape(param_guess[1:17292], 131, 132)
+    S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
+    S.Prog.η = reshape(param_guess[34585:end], 130, 130)
+
+    J = exp1_integrate(S, data, data_spots)
+
+    return J
+
+end
+
+function exp1_gradient_eval(G, param_guess, data, data_spots)
+
+    P = ShallowWaters.Parameter(T=Float32;
+    output=false,
+    L_ratio=1,
+    g=9.81,
+    H=500,
+    wind_forcing_x="double_gyre",
+    Lx=3840e3,
+    tracer_advection=false,
+    tracer_relaxation=false,
+    seasonal_wind_x=false,
+    data_steps=data_steps,
+    topography="flat",
+    bc="nonperiodic",
+    α=2,
+    nx=128,
+    Ndays=Ndays,
+    initial_cond="ncfile",
+    initpath="./data_files_forkf/128_spinup_noforcing/"
+    )
+    S = ShallowWaters.model_setup(P)
+
+    m,n = size(S.Diag.VolumeFluxes.h)
+    @show m
+    @show n
+
+    S.Prog.u = reshape(param_guess[1:17292], 131, 132)
+    S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
+    S.Prog.η = reshape(param_guess[34585:end], 130, 130)
+
+    dS = Enzyme.Compiler.make_zero(S)
+    dS.parameters.J = 1.0
+    # snaps = Int(floor(sqrt(S.grid.nt)))
+    # revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
+    #     snaps;
+    #     verbose=1,
+    #     gc=true,
+    #     write_checkpoints=false,
+    #     write_checkpoints_filename = "",
+    #     write_checkpoints_period = 224
+    # )
+
+    ddata = Enzyme.make_zero(data)
+    ddata_spots = Enzyme.make_zero(data_spots)
+
+    autodiff(Enzyme.ReverseWithPrimal, exp1_integrate,
+    Duplicated(S, dS),
+    Duplicated(data, ddata),
+    Duplicated(data_spots, ddata_spots)
+    )
+
+    # @show dS.Prog.u[5:7,50:60]
+    G .= [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η)]
+    # @show G[5*128:5*128+10]
+
+    return nothing
+
+end
+
+function exp1_FG(F, G, param_guess, data, data_spots)
+
+    G === nothing || exp1_gradient_eval(G, param_guess, data, data_spots)
+    F === nothing || return exp1_cost_eval(param_guess, data, data_spots)
 
 end
 
@@ -433,29 +528,29 @@ function run_adjoint(sigma_initcond, sigma_data, data_spots; kwargs...)
     S_adj.Prog.η = etaic
     param_guess = [vec(uic); vec(vic); vec(etaic)]
 
-    # J = cost_eval(param_guess, data, data_spots)
+    # J = exp1_cost_eval(param_guess, data, data_spots)
 
     # dS = Enzyme.Compiler.make_zero(S_adj)
     # temp = [vec(dS.Prog.u);vec(dS.Prog.v); vec(dS.Prog.η)]
 
-    # G = zeros(length(temp))
+    G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
 
-    gradient_eval(G, param_guess, data, data_spots)
+    # exp1_gradient_eval(G, param_guess, data, data_spots)
 
-    # fg!_closure(F, G, ic) = FG(F, G, ic, data, data_spots)
-    # obj_fg = Optim.only_fg!(fg!_closure)
-    # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true))
+    fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots)
+    obj_fg = Optim.only_fg!(fg!_closure)
+    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=10))
 
-    return G, S_adj, data
+    return J, G, S_adj, dS, data, result
 
 end
 
 N = 3
 sigma_data = 0.01
 sigma_initcond = 0.01
-data_steps = 6733:6733:6733*2
+data_steps = 1:1:6733
 data_spots = 5:100:128*127
-Ndays = 30
+Ndays = 10
 
 # data_spots, true_states, S_kf_all, Progkf_all = run_kf(N,
 #     data_spots,
@@ -480,7 +575,7 @@ Ndays = 30
 #     initpath="./data_files_forkf/128_spinup_noforcing/"
 # )
 
-G, S_adj, data = run_adjoint(sigma_initcond, sigma_data, data_spots,
+J, G, S_adj, dS, data, result = run_adjoint(sigma_initcond, sigma_data, data_spots,
     output=false,
     L_ratio=1,
     g=9.81,

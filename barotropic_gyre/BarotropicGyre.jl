@@ -11,5 +11,4 @@ Random.seed!(649)
 
 include("helper_functions.jl")
 include("ensemble_kf.jl")
-include("experiment1_optim.jl")
 include("experiment1_initialcond.jl")

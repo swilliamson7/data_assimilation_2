@@ -210,7 +210,7 @@ function exp_5_param(;k_guess=31.)
 
     fg!_closure(F, G, k) = exp5_FG(F, G, k, params_adjoint)
     obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, [k_guess], Optim.LBFGS(), Optim.Options(show_trace=true))
+    result = Optim.optimize(obj_fg, [k_guess], Optim.LBFGS(), Optim.Options(show_trace=true, iterations=10))
 
     T = params_adjoint.T
 
@@ -219,6 +219,15 @@ function exp_5_param(;k_guess=31.)
     params_adjoint.J = 0.0
     params_adjoint.energy .= zeros(3, T+1)
     params_adjoint.k = result.minimizer[1]
+    
+    # build a new operator with the optimized k
+    Rc = -params_adjoint.r .* diagm(ones(3))
+    Kc = [-2*params_adjoint.k params_adjoint.k 0; params_adjoint.k -3*params_adjoint.k params_adjoint.k; 0 params_adjoint.k -2*params_adjoint.k]
+    Ac = [zeros(3,3) diagm(ones(3))
+         Kc Rc
+    ]
+    A = diagm(ones(6)) + params_adjoint.dt .* Ac
+    params_adjoint.A = A
 
     exp5_integrate(params_adjoint)
 
