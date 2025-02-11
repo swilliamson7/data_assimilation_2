@@ -77,23 +77,23 @@ function exp5_gradient_eval(G, k_guess, params_adjoint)
     params_adjoint.J = 0.0
     params_adjoint.energy .= zeros(3, T+1)
 
-    dparams = Enzyme.Compiler.make_zero(Core.Typeof(params_adjoint), IdDict(), params_adjoint)
+    dparams = Enzyme.Compiler.make_zero(params_adjoint)
     dparams.J = 1.0
 
-    autodiff(Reverse, integrate1, Duplicated(params_adjoint, dparams))
+    autodiff(Enzyme.Reverse, exp5_integrate, Duplicated(params_adjoint, dparams))
 
     G[1] = dparams.k
 
 end
 
-function FG(F, G, k_guess, params_adjoint)
+function exp5_FG(F, G, k_guess, params_adjoint)
 
-    G === nothing || gradient_eval(G, k_guess, params_adjoint)
-    F === nothing || return cost_eval(k_guess, params_adjoint)
+    G === nothing || exp5_gradient_eval(G, k_guess, params_adjoint)
+    F === nothing || return exp5_cost_eval(k_guess, params_adjoint)
 
 end
 
-function exp_5_param(;optm_steps = 100, k_guess=31.)
+function exp_5_param(;k_guess=31.)
 
     # Parameter choices
     T = 10000             # Total number of steps to integrate
@@ -208,88 +208,57 @@ function exp_5_param(;optm_steps = 100, k_guess=31.)
         Kc = ops_pred.Kc
     )
 
-    fg!_closure(F, G, k) = FG(F, G, k, params_adjoint)
+    fg!_closure(F, G, k) = exp5_FG(F, G, k, params_adjoint)
     obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, [k_guess], Optim.LBFGS(), Optim.Options())
+    result = Optim.optimize(obj_fg, [k_guess], Optim.LBFGS(), Optim.Options(show_trace=true))
 
-    @show result.minimizer
+    T = params_adjoint.T
 
-    # plot of displacement
-    fixed_pos = plot(params_true.states[2,:],
-    label = L"x_2(t)"
-    )
+    params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    params_adjoint.states .= zeros(6, T+1)
+    params_adjoint.J = 0.0
+    params_adjoint.energy .= zeros(3, T+1)
+    params_adjoint.k = result.minimizer[1]
 
-    plot!(params_pred.states[2, :],
-    label = L"\tilde{x}_2(t, -)"
-    )
-    # for uncertainty ribbon 
-    to_plot1 = []
-    to_plot2 = []
-    for j = 1:T+1
-        push!(to_plot1, sqrt(uncertainty[j][2,2]))
-        push!(to_plot2, sqrt(uncertainty[j][5,5]))
-    end
-    # plot!(params_kf.states[2,:], ribbon = to_plot1, ls=:dash, label = L"\tilde{x}_2(t)")
-    plot!(params_kf.states[2,:], ls=:dash, label = L"\tilde{x}_2(t)")
+    exp5_integrate(params_adjoint)
 
-    plot!(params_adjoint.states[2,:], ls=:dashdot,
-    label = L"\tilde{x}_2(t, +)")
-    vline!(data_steps, 
-    label = "",
-    ls=:dot,
-    lc=:red,
-    lw=0.5
-    )
-    ylabel!("Position")
+    fig = Figure()
 
-    # plot of fixed velocity 
-    fixed_vel = plot(params_true.states[5,:],
-    label = L"x_5(t)")
-    plot!(params_pred.states[5, :],
-    label = L"\tilde{x}_5(t, -)"
-    )
-    # plot!(params_kf.states[5,:], ls=:dash, label = L"\tilde{x}_5(t)", ribbon = to_plot2)
-    plot!(params_kf.states[5,:], ls=:dash, label = L"\tilde{x}_5(t)")
-    plot!(params_adjoint.states[5,:], ls=:dashdot,
-    label = L"\tilde{x}_5(t, +)")
-    vline!(data_steps, 
-    label = "",
-    ls=:dot,
-    lc=:red,
-    lw=0.5
-    )
-    ylabel!("Velocity")
+    # position
+    ax1 = Axis(fig[1,1], ylabel="Position");
+    lines!(ax1, params_true.states[1,:], label=L"x_1(t)");
+    lines!(ax1, params_pred.states[1,:], label=L"\tilde{x}_1(t, -)");
+    lines!(ax1, params_kf.states[1,:], label=L"\tilde{x}_1(t)", linestyle=:dash);
+    lines!(ax1, params_adjoint.states[1,:], label=L"\tilde{x}_1(t, +)", linestyle=:dashdot);
+    vlines!(ax1, data_steps, color=:gray75, linestyle=:dot);
 
-    # plot of energy
-    energy = plot(params_true.energy[3,:],
-    label=L"\varepsilon(t)")
-    plot!(params_pred.energy[3,:], label=L"\tilde{\varepsilon}(t,-)")
-    plot!(params_kf.energy[3,:], ls=:dash, label=L"\tilde{\varepsilon}(t)")
-    plot!(params_adjoint.energy[3,:], ls=:dashdot, label=L"\tilde{\varepsilon}(t,+)")
-    vline!(data_steps, 
-    label = "",
-    ls=:dot,
-    lc=:red,
-    lw=0.5
-    )
-    ylabel!("Energy")
-
-    # plot of differences 
-    diffs = plot(abs.(params_true.states[2,:] - params_kf.states[2,:]),
-    label = L"|x_2(t) - \tilde{x}_2(t)|"
-    )
-    plot!(abs.(params_true.states[2, :] - params_adjoint.states[2,:]),
-    label = L"|x_2(t) - \tilde{x}_2(t, +)|"
-    )
-    ylabel!("Position")
-    xlabel!("Timestep")
-
-    plot(fixed_pos, fixed_vel, energy, diffs,
-    layout = (4,1),
-    fmt = :png,
-    dpi = 300,
-    legend = :outerright)
+    ax2 = Axis(fig[2,1], ylabel="Velocity");
+    lines!(ax2, params_true.states[4,:], label=L"x_4(t)");
+    lines!(ax2, params_pred.states[4,:], label=L"\tilde{x}_4(t, -)");
+    lines!(ax2, params_kf.states[4,:], label=L"\tilde{x}_4(t)", linestyle=:dash);
+    lines!(ax2, params_adjoint.states[4,:], label=L"\tilde{x}_4(t, +)", linestyle=:dashdot);
+    vlines!(ax2, data_steps, color=:gray75, linestyle=:dot);
     
+    # plot of the energy
+    ax3 = Axis(fig[3,1], ylabel="Energy");
+    lines!(ax3, params_true.energy[3,:], label=L"\varepsilon(t)");
+    lines!(ax3, params_pred.energy[3,:], label = L"\tilde{\varepsilon}(t, -)");
+    lines!(ax3, params_kf.energy[3,:], label = L"\tilde{\varepsilon}(t)",linestyle=:dash);
+    lines!(ax3, params_adjoint.energy[3,:], label = L"\tilde{\varepsilon}(t, +)",linestyle=:dashdot);
+    vlines!(ax3, data_steps, color=:gray75, linestyle=:dot);
+
+    # plot of differences in estimates vs. truth
+    ax4 = Axis(fig[4,1], ylabel="Energy", xlabel="Timestep");
+    lines!(ax4,abs.(params_true.energy[3,:] - params_kf.energy[3,:]),label = L"|\varepsilon(t) - \tilde{\varepsilon}(t)|");
+    lines!(ax4, abs.(params_true.energy[3,:] - params_adjoint.energy[3,:]),label = L"|\varepsilon(t) - \tilde{\varepsilon}(t, +)|",linestyle=:dash);
+    vlines!(ax4, data_steps, color=:gray75, linestyle=:dot);
+
+    fig[1,2] = Legend(fig, ax1)
+    fig[2,2] = Legend(fig, ax2)
+    fig[3,2] = Legend(fig, ax3)
+    fig[4,2] = Legend(fig, ax4)
+
+    return params_true, params_pred, params_kf, params_adjoint, fig
 
 end
 

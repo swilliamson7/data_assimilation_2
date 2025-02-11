@@ -158,7 +158,7 @@ function exp_1_fivedata()
     fig = Figure();
     ax = Axis(fig[1,1], ylabel="Position");
     lines!(ax, params_true.states[1,:], label=L"x_1(t)");
-    lines!(ax, params_pred.states[1,:], label=L"\tilde{x}(t, -)");
+    lines!(ax, params_pred.states[1,:], label=L"\tilde{x}_1(t, -)");
     lines!(ax, params_kf.states[1,:], label=L"\tilde{x}_1(t)", linestyle=:dash);
     lines!(ax, params_adjoint.states[1,:], label=L"\tilde{x}_1(t, +)", linestyle=:dashdot);
     vlines!(ax, data_steps, color=:gray75, linestyle=:dot);
