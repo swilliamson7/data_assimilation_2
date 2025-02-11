@@ -1,3 +1,46 @@
+function exp1_cost_eval(u_guess, params)
+
+    T = params.T
+    params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    params.states .= zeros(6, T+1)
+    params.J = 0.0
+    params.energy .= zeros(3, T+1)
+
+    params.u .= reshape(u_guess, 6, T+1)
+
+    integrate(params)
+
+    return params.J
+
+end
+
+function exp1_grad_eval(G, u_guess, params)
+
+    T = params.T
+
+    params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    params.states .= zeros(6, T+1)
+    params.J = 0.0
+    params.energy .= zeros(3, T+1)
+
+    params.u .= reshape(u_guess, 6, T+1)
+    dparams = Enzyme.make_zero(params)
+    dparams.J = 1.0
+    autodiff(Enzyme.Reverse, integrate, Duplicated(params, dparams))
+
+    G .= vec(dparams.u)
+
+    return nothing
+
+end
+
+function exp1_FG(F, G, u_guess, params_adjoint)
+
+    G === nothing || exp1_grad_eval(G, u_guess, params_adjoint)
+    F === nothing || return exp1_cost_eval(u_guess, params_adjoint)
+
+end
+
 function exp_1_fivedata()
 
     # Parameter choices 
@@ -91,82 +134,54 @@ function exp_1_fivedata()
         Kc = ops.Kc
     )
 
-    dparams_adjoint = grad_descent(100, params_adjoint, [1.,0.,0.,0.,0.,0.])
+    G = vec(params_adjoint.u)
+
+    fg!_closure(F, G, u_guess) = exp1_FG(F, G, u_guess, params_adjoint)
+    obj_fg = Optim.only_fg!(fg!_closure)
+    result = Optim.optimize(obj_fg, vec(params_adjoint.u), Optim.LBFGS(), Optim.Options(show_trace=true,iterations=7))
+
+    T = params_adjoint.T
+
+    params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    params_adjoint.states .= zeros(6, T+1)
+    params_adjoint.J = 0.0
+    params_adjoint.energy .= zeros(3, T+1)
+
+    params_adjoint.u .= reshape(result.minimizer, 6, T+1)
+    integrate(params_adjoint)
+
+    # dparams_adjoint = grad_descent(100, params_adjoint, [1.,0.,0.,0.,0.,0.])
 
     ## plots for exp 1
 
     # plot of the position of mass one
-    mass_1_pos = plot(params_true.states[1,:],
-    label = L"x_1(t)"
-    )
-    plot!(params_pred.states[1,:],
-    label = L"\tilde{x}(t, -)"
-    )
-    plot!(params_kf.states[1,:],
-        label = L"\tilde{x}_1(t)",
-        ls=:dash
-    )
-    plot!(params_adjoint.states[1,:],
-        label = L"\tilde{x}_1(t, +)",
-        ls=:dashdot
-    )
-    vline!(data_steps, 
-        label = "",
-        ls=:dot,
-        linewidth=0.75,
-        color=:red
-    )
-    yaxis!("Position")
-
+    fig = Figure();
+    ax = Axis(fig[1,1], ylabel="Position");
+    lines!(ax, params_true.states[1,:], label=L"x_1(t)");
+    lines!(ax, params_pred.states[1,:], label=L"\tilde{x}(t, -)");
+    lines!(ax, params_kf.states[1,:], label=L"\tilde{x}_1(t)", linestyle=:dash);
+    lines!(ax, params_adjoint.states[1,:], label=L"\tilde{x}_1(t, +)", linestyle=:dashdot);
+    vlines!(ax, data_steps, color=:gray75, linestyle=:dot);
+    
     # plot of the energy 
-    energy = plot(params_true.energy[3,:], 
-        label = L"\varepsilon(t)"
-    )
-    plot!(params_pred.energy[3,:],
-    label = L"\tilde{\varepsilon}(t, -)"
-    )
-    plot!(params_kf.energy[3,:], 
-        label = L"\tilde{\varepsilon}(t)",
-        ls=:dash
-    )
-    plot!(params_adjoint.energy[3,:], 
-        label = L"\tilde{\varepsilon}(t, +)",
-        ls=:dashdot
-    )
-    vline!(data_steps, 
-        label = "",
-        ls=:dot,
-        linewidth=0.75,
-        color=:red
-    )
-    yaxis!("Energy")
+    ax1 = Axis(fig[2,1], ylabel="Energy");
+    lines!(ax1, params_true.energy[3,:], label=L"\varepsilon(t)");
+    lines!(ax1, params_pred.energy[3,:], label = L"\tilde{\varepsilon}(t, -)");
+    lines!(ax1, params_kf.energy[3,:], label = L"\tilde{\varepsilon}(t)",linestyle=:dash);
+    lines!(ax1, params_adjoint.energy[3,:], label = L"\tilde{\varepsilon}(t, +)",linestyle=:dashdot);
+    vlines!(ax1, data_steps, color=:gray75, linestyle=:dot);
 
-    # plot of differences in estimates vs. truth 
-    energy_diffs = plot(abs.(params_true.energy[3,:] - params_kf.energy[3,:]),
-        label = L"|\varepsilon(t) - \tilde{\varepsilon}(t)|"
-    )
-    plot!(abs.(params_true.energy[3,:] - params_adjoint.energy[3,:]),
-        label = L"|\varepsilon(t) - \tilde{\varepsilon}(t, +)|",
-        ls=:dash
-    )
-    vline!(data_steps, 
-    label = "",
-    ls=:dot,
-    linewidth=0.75,
-    color=:red
-    )
-    yaxis!("Energy")
+    # plot of differences in estimates vs. truth
+    ax2 = Axis(fig[3,1], ylabel="Energy", xlabel="Timestep");
+    lines!(ax2,abs.(params_true.energy[3,:] - params_kf.energy[3,:]),label = L"|\varepsilon(t) - \tilde{\varepsilon}(t)|");
+    lines!(ax2, abs.(params_true.energy[3,:] - params_adjoint.energy[3,:]),label = L"|\varepsilon(t) - \tilde{\varepsilon}(t, +)|",linestyle=:dash);
+    vlines!(ax2, data_steps, color=:gray75, linestyle=:dot);
 
+    fig[1,2] = Legend(fig, ax)
+    fig[2,2] = Legend(fig, ax1)
+    fig[3,2] = Legend(fig, ax2)
 
-    xaxis!("Timestep")
-
-    plot(mass_1_pos, energy, energy_diffs, 
-        layout = (3,1), 
-        fmt = :png,
-        dpi = 300, 
-        legend = :outerright
-    )
-
+    return params_true, params_pred, params_kf, params_adjoint, fig
 end
 
 #### checking the derivative returned by Enzyme 

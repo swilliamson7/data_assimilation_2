@@ -1,4 +1,3 @@
-
 # Function to run gradient descent with the gradient computed from the adjoint variables
 
 function grad_descent(M, params::mso_params_ops, x0::Vector{Float64})
@@ -11,12 +10,8 @@ function grad_descent(M, params::mso_params_ops, x0::Vector{Float64})
     params.energy .= zeros(3, T+1)
     params.J = 0.0
 
-    dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
+    dparams = Enzyme.make_zero(params)
     dparams.J = 1.0
-    dparams.k = 0.
-    dparams.r = 0.
-    dparams.dt = 0.
-    dparams.Q_inv = 0.
 
     autodiff(Reverse, integrate, Duplicated(params, dparams))
 
@@ -37,12 +32,12 @@ function grad_descent(M, params::mso_params_ops, x0::Vector{Float64})
         params.states .= zeros(6, T+1)
         params.J = 0.0
 
-        dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
+        dparams = Enzyme.Compiler.make_zero(params)
         dparams.J = 1.0
-        dparams.k = 0.
-        dparams.r = 0.
-        dparams.dt = 0.
-        dparams.Q_inv = 0.
+        # dparams.k = 0.
+        # dparams.r = 0.
+        # dparams.dt = 0.
+        # dparams.Q_inv = 0.
 
         autodiff(Reverse, integrate, Duplicated(params, dparams))
 

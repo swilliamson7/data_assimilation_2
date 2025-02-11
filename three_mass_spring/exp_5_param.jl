@@ -1,4 +1,4 @@
-function integrate1(mso_struct::mso_params_ops)
+function exp5_integrate(mso_struct::mso_params_ops)
 
     @unpack B, Gamma, E, R, R_inv, Kc, Q, Q_inv = mso_struct
     @unpack r = mso_struct
@@ -52,226 +52,7 @@ function integrate1(mso_struct::mso_params_ops)
 
 end
 
-# function setup_model(;k_guess = [31.], T = 10000)
-
-#     # Parameter choices
-#     T = T             # Total number of steps to integrate
-#     r = 0.5               # spring coefficient
-
-#     ###########################################
-#     q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))      # known forcing function
-#     q_kf(t) = 0.5 * q_true(t)                          # forcing seen by KF and adjoint
-#     # q_kf(t) = q_true(t)
-#     ###########################################
-    
-#     data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
-#     # data_steps2 = [k for k in 7200:100:9000]
-#     # data_steps = [data_steps1;data_steps2]
-#     data_steps = data_steps1
-#     # data_steps = [t for t in 1:T]
-
-#     rand_forcing = 0.1 .* randn(T+1)
-#     u = zeros(6, T+1)
-#     u[1, :] .= rand_forcing
-
-#     params_true = ThreeMassSpring.mso_params(T = T,
-#     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-#     u = u,
-#     k = 30,
-#     n = 0.0001 .* randn(6, T+1),
-#     q = q_true,
-#     data_steps = data_steps,
-#     data = zeros(1,1),
-#     states = zeros(6, T+1),
-#     energy = zeros(3, T+1)
-#     )
-
-#     params_pred = ThreeMassSpring.mso_params(T = T,
-#     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-#     q = q_kf,
-#     u = u,
-#     k = k_guess[1],
-#     data_steps = data_steps,
-#     data = zeros(1,1),
-#     states = zeros(6, T+1),
-#     energy = zeros(3, T+1)
-#     )
-
-#     ops_true = ThreeMassSpring.build_ops(params_true)
-#     ops_pred = ThreeMassSpring.build_ops(params_pred)
-
-#     # assuming data of all positions and velocities -> E is the identity operator
-#     ops_true.E .= Diagonal(ones(6))
-#     ops_pred.E .= Diagonal(ones(6))
-    
-#     ops_true.Q[1,1] = cov(params_true.u[:], corrected=false)
-#     ops_pred.Q[1,1] = cov(params_true.u[:], corrected=false)
-
-#     ops_true.R .= cov(params_true.n[:], corrected=false) .* Diagonal(ones(6))
-#     ops_pred.R .= cov(params_true.n[:], corrected=false) .* Diagonal(ones(6))
-
-#     # assuming random forcing on position of mass one
-#     ops_true.Gamma[1,1] = 1.0
-#     ops_pred.Gamma[1, 1] = 1.0
-
-#     # pure prediction model
-#     _ = ThreeMassSpring.create_data(params_pred, ops_pred)
-
-#     states_noisy = ThreeMassSpring.create_data(params_true, ops_true)
-
-#     diag = 0.0
-#     Q_inv = diag
-
-#     ###################################
-#     R_inv = ops_pred.R^(-1)
-#     # R_inv = ops_pred.E
-#     ###################################
-
-#     params_kf = mso_params(T=T,
-#         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-#         u = u,
-#         k = k_guess[1],
-#         n = zeros(1,1),
-#         q = q_kf,
-#         data_steps = data_steps,
-#         data = states_noisy,
-#         states = zeros(6, T+1),
-#         energy = zeros(3, T+1)
-#     )
-
-#     uncertainty = run_kalman_filter(
-#         params_kf,
-#         ops_pred
-#     )
-
-#     params_adjoint = mso_params_ops(T=T,
-#         t = 0,
-#         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-#         u = u,
-#         n = 0.0 .* randn(6, T+1),
-#         q = q_kf,
-#         J = 0.0,
-#         k = k_guess[1],
-#         data_steps = data_steps,
-#         data = states_noisy,
-#         states = zeros(6, T+1),
-#         energy = zeros(3, T+1),
-#         A = ops_pred.A,
-#         B = ops_pred.B,
-#         Gamma = ops_pred.Gamma,
-#         E = ops_pred.E,
-#         Q = 0.0 .* ops_pred.Q,
-#         Q_inv = Q_inv,
-#         R = ops_pred.R,
-#         R_inv = R_inv,
-#         K = ops_pred.K,
-#         Kc = ops_pred.Kc
-#     )
-
-#     return params_adjoint, params_pred, params_true, params_kf, uncertainty
-
-# end
-
-# function grad_descent1(M, params::mso_params_ops)
-
-#     T = params.T
-
-#     k_new = 0.0
-#     params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-#     params.states .= zeros(6, T+1)
-#     params.energy .= zeros(3, T+1)
-#     params.J = 0.0
-
-#     dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
-#     dparams.J = 1.0
-#     dparams.k = 0.
-#     dparams.r = 0.
-#     dparams.dt = 0.
-#     dparams.Q_inv = 0.
-
-#     print("Beginning grad descent\n")
-
-#     autodiff(Reverse, integrate1, Duplicated(params, dparams))
-
-#     if M == 0
-#         return
-#     end
-
-#     @show dparams.k
-
-#     k_new = params.k - (1 / norm(dparams.k)) * dparams.k
-
-#     @show k_new
-
-#     j = 1
-#     k_old = copy(params.k)
-#     k_grad_old = copy(dparams.k)
-#     params.k = k_new
-
-#     J_values = []
-#     push!(J_values, params.J)
-#     j_values = []
-#     push!(j_values, j)
-
-#     while norm(k_grad_old) > 500
-
-#         params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-#         params.states .= zeros(6, T+1)
-#         params.k = k_new
-#         params.J = 0.0
-#         params.energy .= zeros(3, T+1)
-
-#         dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
-#         dparams.J = 1.0
-#         dparams.k = 0.
-#         dparams.r = 0.
-#         dparams.dt = 0.
-#         dparams.Q_inv = 0.
-
-#         autodiff(Reverse, integrate1, Duplicated(params, dparams))
-
-#         print("Norm of the derivative\n") 
-#         @show norm(dparams.k)
-
-#         print("Current guess for k\n")
-#         @show params.k
-
-#         print("Objective value\n")
-#         @show params.J
-
-#         gamma = 0.0
-#         num = 0.0
-#         den = 0.0
-
-#         num = sum(dot(params.k - k_old, dparams.k - k_grad_old))
-#         den = norm(dparams.k - k_grad_old)^2
-
-#         gamma = (abs(num) / den)
-
-#         k_new = params.k - gamma * dparams.k
-
-#         k_old = copy(params.k)
-#         k_grad_old = copy(dparams.k)
-#         params.k = k_new
-
-#         dparams.k = 0.0
-
-#         j += 1
-
-#         push!(J_values, params.J)
-#         push!(j_values, j)
-
-#         if j > M
-#             break
-#         end
-
-#     end
-
-#     return params, j_values, J_values
-
-# end
-
-function cost_eval(k_guess, params_adjoint)
+function exp5_cost_eval(k_guess, params_adjoint)
 
     T = params_adjoint.T
     params_adjoint.k = k_guess[1]
@@ -280,13 +61,13 @@ function cost_eval(k_guess, params_adjoint)
     params_adjoint.J = 0.0
     params_adjoint.energy .= zeros(3, T+1)
 
-    integrate1(params_adjoint)
+    exp5_integrate(params_adjoint)
 
     return params_adjoint.J
 
 end
 
-function gradient_eval(G, k_guess, params_adjoint)
+function exp5_gradient_eval(G, k_guess, params_adjoint)
 
     T = params_adjoint.T
 
@@ -298,10 +79,6 @@ function gradient_eval(G, k_guess, params_adjoint)
 
     dparams = Enzyme.Compiler.make_zero(Core.Typeof(params_adjoint), IdDict(), params_adjoint)
     dparams.J = 1.0
-    dparams.k = 0.
-    dparams.r = 0.
-    dparams.dt = 0.
-    dparams.Q_inv = 0.
 
     autodiff(Reverse, integrate1, Duplicated(params_adjoint, dparams))
 
