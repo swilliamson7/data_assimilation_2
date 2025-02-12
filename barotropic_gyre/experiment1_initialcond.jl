@@ -1,3 +1,195 @@
+# sparse u as data
+
+function exp1_generate_data(data_spots, sigma_data; kwargs...)
+
+    # Create the "true" model, from this we'll make data
+    P = ShallowWaters.Parameter(T=Float32; kwargs...)
+    S_true = ShallowWaters.model_setup(P)
+
+    data = Float32.(zeros(length(data_spots), length(S_true.parameters.data_steps)))
+    true_states = []
+
+    # setup
+    Diag = S_true.Diag
+    Prog = S_true.Prog
+
+    @unpack u,v,η,sst = Prog
+    @unpack u0,v0,η0 = Diag.RungeKutta
+    @unpack u1,v1,η1 = Diag.RungeKutta
+    @unpack du,dv,dη = Diag.Tendencies
+    @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
+    @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
+
+    @unpack um,vm = Diag.SemiLagrange
+
+    @unpack dynamics,RKo,RKs,tracer_advection = S_true.parameters
+    @unpack time_scheme,compensated = S_true.parameters
+    @unpack RKaΔt,RKbΔt = S_true.constants
+    @unpack Δt_Δ,Δt_Δs = S_true.constants
+
+    @unpack nt,dtint = S_true.grid
+    @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S_true.grid
+
+    # calculate layer thicknesses for initial conditions
+    ShallowWaters.thickness!(Diag.VolumeFluxes.h,η,S_true.forcing.H)
+    ShallowWaters.Ix!(Diag.VolumeFluxes.h_u,Diag.VolumeFluxes.h)
+    ShallowWaters.Iy!(Diag.VolumeFluxes.h_v,Diag.VolumeFluxes.h)
+    ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
+
+    # calculate PV terms for initial conditions
+    urhs = convert(Diag.PrognosticVarsRHS.u,u)
+    vrhs = convert(Diag.PrognosticVarsRHS.v,v)
+    ηrhs = convert(Diag.PrognosticVarsRHS.η,η)
+
+    ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S_true)
+    ShallowWaters.PVadvection!(Diag,S_true)
+
+    # propagate initial conditions
+    copyto!(u0,u)
+    copyto!(v0,v)
+    copyto!(η0,η)
+
+    # store initial conditions of sst for relaxation
+    copyto!(Diag.SemiLagrange.sst_ref,sst)
+    j = 1
+
+    for t = 1:S_true.grid.nt
+
+        Diag = S_true.Diag
+        Prog = S_true.Prog
+    
+        @unpack u,v,η,sst = Prog
+        @unpack u0,v0,η0 = Diag.RungeKutta
+        @unpack u1,v1,η1 = Diag.RungeKutta
+        @unpack du,dv,dη = Diag.Tendencies
+        @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
+        @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
+    
+        @unpack um,vm = Diag.SemiLagrange
+    
+        @unpack dynamics,RKo,RKs,tracer_advection = S_true.parameters
+        @unpack time_scheme,compensated = S_true.parameters
+        @unpack RKaΔt,RKbΔt = S_true.constants
+        @unpack Δt_Δ,Δt_Δs = S_true.constants
+    
+        @unpack nt,dtint = S_true.grid
+        @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S_true.grid
+        i = S_true.parameters.i
+
+        # ghost point copy for boundary conditions
+        ShallowWaters.ghost_points!(u,v,η,S_true)
+        copyto!(u1,u)
+        copyto!(v1,v)
+        copyto!(η1,η)
+
+        if compensated
+            fill!(du_sum,zero(Tprog))
+            fill!(dv_sum,zero(Tprog))
+            fill!(dη_sum,zero(Tprog))
+        end
+
+        for rki = 1:RKo
+            if rki > 1
+                ShallowWaters.ghost_points!(u1,v1,η1,S_true)
+            end
+
+            # type conversion for mixed precision
+            u1rhs = convert(Diag.PrognosticVarsRHS.u,u1)
+            v1rhs = convert(Diag.PrognosticVarsRHS.v,v1)
+            η1rhs = convert(Diag.PrognosticVarsRHS.η,η1)
+
+            ShallowWaters.rhs!(u1rhs,v1rhs,η1rhs,Diag,S_true,t)          # momentum only
+            ShallowWaters.continuity!(u1rhs,v1rhs,η1rhs,Diag,S_true,t)   # continuity equation
+
+            if rki < RKo
+                ShallowWaters.caxb!(u1,u,RKbΔt[rki],du)   #u1 .= u .+ RKb[rki]*Δt*du
+                ShallowWaters.caxb!(v1,v,RKbΔt[rki],dv)   #v1 .= v .+ RKb[rki]*Δt*dv
+                ShallowWaters.caxb!(η1,η,RKbΔt[rki],dη)   #η1 .= η .+ RKb[rki]*Δt*dη
+            end
+
+            if compensated      # accumulate tendencies
+                ShallowWaters.axb!(du_sum,RKaΔt[rki],du)
+                ShallowWaters.axb!(dv_sum,RKaΔt[rki],dv)
+                ShallowWaters.axb!(dη_sum,RKaΔt[rki],dη)
+            else    # sum RK-substeps on the go
+                ShallowWaters.axb!(u0,RKaΔt[rki],du)          #u0 .+= RKa[rki]*Δt*du
+                ShallowWaters.axb!(v0,RKaΔt[rki],dv)          #v0 .+= RKa[rki]*Δt*dv
+                ShallowWaters.axb!(η0,RKaΔt[rki],dη)          #η0 .+= RKa[rki]*Δt*dη
+            end
+        end
+
+        if compensated
+            # add compensation term to total tendency
+            ShallowWaters.axb!(du_sum,-1,du_comp)
+            ShallowWaters.axb!(dv_sum,-1,dv_comp)
+            ShallowWaters.axb!(dη_sum,-1,dη_comp)
+
+            ShallowWaters.axb!(u0,1,du_sum)   # update prognostic variable with total tendency
+            ShallowWaters.axb!(v0,1,dv_sum)
+            ShallowWaters.axb!(η0,1,dη_sum)
+
+            ShallowWaters.dambmc!(du_comp,u0,u,du_sum)    # compute new compensation
+            ShallowWaters.dambmc!(dv_comp,v0,v,dv_sum)
+            ShallowWaters.dambmc!(dη_comp,η0,η,dη_sum)
+        end
+
+        ShallowWaters.ghost_points!(u0,v0,η0,S_true)
+
+        # type conversion for mixed precision
+        u0rhs = convert(Diag.PrognosticVarsRHS.u,u0)
+        v0rhs = convert(Diag.PrognosticVarsRHS.v,v0)
+        η0rhs = convert(Diag.PrognosticVarsRHS.η,η0)
+
+        # ADVECTION and CORIOLIS TERMS
+        # although included in the tendency of every RK substep,
+        # only update every nstep_advcor steps if nstep_advcor > 0
+        if dynamics == "nonlinear" && nstep_advcor > 0 && (i % nstep_advcor) == 0
+            ShallowWaters.UVfluxes!(u0rhs,v0rhs,η0rhs,Diag,S_true)
+            ShallowWaters.advection_coriolis!(u0rhs,v0rhs,η0rhs,Diag,S_true)
+        end
+
+        # DIFFUSIVE TERMS - SEMI-IMPLICIT EULER
+        # use u0 = u^(n+1) to evaluate tendencies, add to u0 = u^n + rhs
+        # evaluate only every nstep_diff time steps
+        if (S_true.parameters.i % nstep_diff) == 0
+            ShallowWaters.bottom_drag!(u0rhs,v0rhs,η0rhs,Diag,S_true)
+            ShallowWaters.diffusion!(u0rhs,v0rhs,Diag,S_true)
+            ShallowWaters.add_drag_diff_tendencies!(u0,v0,Diag,S_true)
+            ShallowWaters.ghost_points_uv!(u0,v0,S_true)
+        end
+
+        # TRACER ADVECTION
+        u0rhs = convert(Diag.PrognosticVarsRHS.u,u0) 
+        v0rhs = convert(Diag.PrognosticVarsRHS.v,v0)
+        ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
+
+        # if t ∈ 30*225:30*225:S_true.grid.nt
+            temp1 = ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
+                ShallowWaters.remove_halo(u,v,η,sst,S_true)...)
+            push!(true_states, temp1)
+        # end
+
+        if t ∈ S_true.parameters.data_steps
+            temp2 = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
+                ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).u
+            )
+            data[:, j] = Float32.(temp2[data_spots] .+ sigma_data .* randn(length(data_spots)))
+            j += 1
+        end
+
+        # Copy back from substeps
+        copyto!(u,u0)
+        copyto!(v,v0)
+        copyto!(η,η0)
+
+        t += dtint
+
+    end
+
+    return data, true_states
+
+end
+
 function exp1_cpintegrate(S, scheme, data, data_spots)
 
     # setup
@@ -44,14 +236,6 @@ function exp1_cpintegrate(S, scheme, data, data_spots)
     copyto!(Diag.SemiLagrange.sst_ref,sst)
 
     # run integration loop with checkpointing
-    exp1_loop(S, scheme, data, data_spots)
-
-    return S.parameters.J
-
-end
-
-function exp1_loop(S, scheme, data, data_spots)
-
     j = 1
 
     @checkpoint_struct scheme S for S.parameters.i = 1:S.grid.nt
@@ -177,9 +361,13 @@ function exp1_loop(S, scheme, data, data_spots)
             S.Prog.η,
             S.Prog.sst,S)...)
 
-            tempu = u_mat_to_vec(temp.u)[data_spots]
+            tempu = vec(temp.u)[data_spots]
 
-            S.parameters.J += sum((tempu - data[:, j]).^2)
+            @show size(S.parameters.data_steps)
+            @show j
+            @show S.parameters.i
+            @show S.parameters.data_steps[j]
+            S.parameters.J = S.parameters.J + sum((tempu - data[:, j]).^2)
 
             j += 1
 
@@ -191,8 +379,11 @@ function exp1_loop(S, scheme, data, data_spots)
         copyto!(η,η0)
 
     end
+    j =
 
     return nothing
+
+    return S.parameters.J
 
 end
 
@@ -242,7 +433,9 @@ function exp1_integrate(S, data, data_spots)
     copyto!(Diag.SemiLagrange.sst_ref,sst)
     j = 1
 
-    # run integration loop with checkpointing
+    states = []
+
+    # run integration loop without checkpointing
     for S.parameters.i = 1:S.grid.nt
 
         Diag = S.Diag
@@ -365,13 +558,22 @@ function exp1_integrate(S, data, data_spots)
             S.Prog.η,
             S.Prog.sst,S)...)
 
-            tempu = u_mat_to_vec(temp.u)[data_spots]
+            tempu = vec(temp.u)[data_spots]
 
             S.parameters.J = S.parameters.J + sum((tempu - data[:, j]).^2)
 
             j += 1
 
         end
+        # if S.parameters.i in 30*225:30*225:S.grid.nt
+
+        #     temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S.Prog.u,
+        #     S.Prog.v,
+        #     S.Prog.η,
+        #     S.Prog.sst,S)...)
+        #     push!(states, temp)
+
+        # end
 
         # Copy back from substeps
         copyto!(u,u0)
@@ -380,7 +582,6 @@ function exp1_integrate(S, data, data_spots)
 
     end
 
-    @show S.parameters.J
     return S.parameters.J
 
 end
@@ -397,12 +598,12 @@ function exp1_cost_eval(param_guess, data, data_spots)
     tracer_advection=false,
     tracer_relaxation=false,
     seasonal_wind_x=false,
-    data_steps=data_steps,
+    data_steps=30*225:30*225:30*225*6,
     topography="flat",
     bc="nonperiodic",
     α=2,
     nx=128,
-    Ndays=Ndays,
+    Ndays=5*30,
     initial_cond="ncfile",
     initpath="./data_files_forkf/128_spinup_noforcing/"
     )
@@ -412,7 +613,17 @@ function exp1_cost_eval(param_guess, data, data_spots)
     S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
     S.Prog.η = reshape(param_guess[34585:end], 130, 130)
 
-    J = exp1_integrate(S, data, data_spots)
+    snaps = Int(floor(sqrt(S.grid.nt)))
+    revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
+        snaps;
+        verbose=1,
+        gc=true,
+        write_checkpoints=false,
+        write_checkpoints_filename = "",
+        write_checkpoints_period = 224
+    )
+
+    J = exp1_cpintegrate(S, revolve, data, data_spots)
 
     return J
 
@@ -430,12 +641,12 @@ function exp1_gradient_eval(G, param_guess, data, data_spots)
     tracer_advection=false,
     tracer_relaxation=false,
     seasonal_wind_x=false,
-    data_steps=data_steps,
+    data_steps=30*225:30*225:30*225*6,
     topography="flat",
     bc="nonperiodic",
     α=2,
     nx=128,
-    Ndays=Ndays,
+    Ndays=5*30,
     initial_cond="ncfile",
     initpath="./data_files_forkf/128_spinup_noforcing/"
     )
@@ -451,21 +662,22 @@ function exp1_gradient_eval(G, param_guess, data, data_spots)
 
     dS = Enzyme.Compiler.make_zero(S)
     dS.parameters.J = 1.0
-    # snaps = Int(floor(sqrt(S.grid.nt)))
-    # revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
-    #     snaps;
-    #     verbose=1,
-    #     gc=true,
-    #     write_checkpoints=false,
-    #     write_checkpoints_filename = "",
-    #     write_checkpoints_period = 224
-    # )
+    snaps = Int(floor(sqrt(S.grid.nt)))
+    revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
+        snaps;
+        verbose=1,
+        gc=true,
+        write_checkpoints=false,
+        write_checkpoints_filename = "",
+        write_checkpoints_period = 224
+    )
 
     ddata = Enzyme.make_zero(data)
     ddata_spots = Enzyme.make_zero(data_spots)
 
-    autodiff(Enzyme.ReverseWithPrimal, exp1_integrate,
+    autodiff(Enzyme.ReverseWithPrimal, exp1_cpintegrate,
     Duplicated(S, dS),
+    Const(revolve),
     Duplicated(data, ddata),
     Duplicated(data_spots, ddata_spots)
     )
@@ -485,13 +697,32 @@ function exp1_FG(F, G, param_guess, data, data_spots)
 
 end
 
-function run_kf(N, data_spots, sigma_initcond, sigma_data;
-    kwargs...
+function exp1_initialcond(N, sigma_data, sigma_initcond, data_spots; kwargs...)
+
+    data, true_states = exp1_generate_data(data_spots, sigma_data; kwargs...)
+
+    P = ShallowWaters.Parameter(T=Float32;kwargs...)
+    S_pred = ShallowWaters.model_setup(P)
+    P_pred = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_pred.Prog.u,
+        S_pred.Prog.v,
+        S_pred.Prog.η,
+        S_pred.Prog.sst,
+        S_pred)...
     )
 
-    data, true_states = generate_data(data_spots, sigma_data; kwargs...)
+    # perturb initial conditions from those seen by the "true" model (create incorrect initial conditions)
+    P_pred.u = P_pred.u + sigma_initcond .* randn(size(P_pred.u))
+    P_pred.v = P_pred.v + sigma_initcond .* randn(size(P_pred.v))
+    P_pred.η = P_pred.η + sigma_initcond .* randn(size(P_pred.η))
 
-    S_kf_all, Progkf_all = run_ensemble_kf(N,
+    uic,vic,etaic = ShallowWaters.add_halo(P_pred.u,P_pred.v,P_pred.η,P_pred.sst,S_pred)
+    S_pred.Prog.u = uic
+    S_pred.Prog.v = vic
+    S_pred.Prog.η = etaic
+    param_guess = [vec(uic); vec(vic); vec(etaic)]
+
+    S_kf, Prog_kf = run_ensemble_kf(N,
+        param_guess,
         data,
         data_spots,
         sigma_initcond,
@@ -499,101 +730,59 @@ function run_kf(N, data_spots, sigma_initcond, sigma_data;
         kwargs...
     )
 
-    return data_spots, true_states, S_kf_all, Progkf_all
-
-end
-
-function run_adjoint(sigma_initcond, sigma_data, data_spots; kwargs...)
-
-    data, true_states = generate_data(data_spots, sigma_data; kwargs...)
-    P = ShallowWaters.Parameter(T=Float32;kwargs...)
-
-    S_adj = ShallowWaters.model_setup(P)
-
-    P_adj = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_adj.Prog.u,
-        S_adj.Prog.v,
-        S_adj.Prog.η,
-        S_adj.Prog.sst,
-        S_adj)...
-    )
-
-    # perturb initial conditions from those seen by the "true" model (create incorrect initial conditions)
-    P_adj.u = P_adj.u + sigma_initcond .* randn(size(P_adj.u))
-    P_adj.v = P_adj.v + sigma_initcond .* randn(size(P_adj.v))
-    P_adj.η = P_adj.η + sigma_initcond .* randn(size(P_adj.η))
-
-    uic,vic,etaic = ShallowWaters.add_halo(P_adj.u,P_adj.v,P_adj.η,P_adj.sst,S_adj)
-    S_adj.Prog.u = uic
-    S_adj.Prog.v = vic
-    S_adj.Prog.η = etaic
-    param_guess = [vec(uic); vec(vic); vec(etaic)]
-
-    # J = exp1_cost_eval(param_guess, data, data_spots)
-
-    # dS = Enzyme.Compiler.make_zero(S_adj)
-    # temp = [vec(dS.Prog.u);vec(dS.Prog.v); vec(dS.Prog.η)]
-
-    G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
-
-    # exp1_gradient_eval(G, param_guess, data, data_spots)
-
     fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots)
     obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=10))
+    result = Optim.optimize(obj_fg,
+        param_guess,
+        Optim.LBFGS(),
+        Optim.Options(show_trace=true, iterations=5)
+    )
 
-    return J, G, S_adj, dS, data, result
+    P_adj = ShallowWaters.Parameter(T=Float32;kwargs...)
+    S_adj = ShallowWaters.model_setup(P_adj)
+    # S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
+    # S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
+    # S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
+
+    # _, Prog_adj = exp1_integrate(S_adj, data, data_spots)
+
+    # return S_kf, Prog_kf, S_adj, dS_adj, Prog_adj, data, true_states
+    return S_kf, Prog_kf, S_adj, data, true_states
 
 end
 
-N = 3
-sigma_data = 0.01
-sigma_initcond = 0.01
-data_steps = 1:1:6733
-data_spots = 5:100:128*127
-Ndays = 10
+function run_exp1_initialcond()
 
-# data_spots, true_states, S_kf_all, Progkf_all = run_kf(N,
-#     data_spots,
-#     sigma_initcond,
-#     sigma_data,
-#     output=false,
-#     L_ratio=1,
-#     g=9.81,
-#     H=500,
-#     wind_forcing_x="double_gyre",
-#     Lx=3840e3,
-#     tracer_advection=false,
-#     tracer_relaxation=false,
-#     seasonal_wind_x=false,
-#     data_steps=data_steps,
-#     topography="flat",
-#     bc="nonperiodic",
-#     α=2,
-#     nx=128,
-#     Ndays=Ndays,
-#     initial_cond="ncfile",
-#     initpath="./data_files_forkf/128_spinup_noforcing/"
-# )
+    N = 3                           # number of ensembles in the ensemble kalman filter
+    sigma_data = 0.01               # std of noise added to data
+    sigma_initcond = 0.01           # std of noise added to initial cond
+    data_steps = 30*225:30*225:30*225*6           # which timesteps to incorporate data
+    data_spots = 5:100:128*127      # where data exists spatially
+    Ndays = 5 * 30                      # how many days to run the integration
 
-J, G, S_adj, dS, data, result = run_adjoint(sigma_initcond, sigma_data, data_spots,
-    output=false,
-    L_ratio=1,
-    g=9.81,
-    H=500,
-    wind_forcing_x="double_gyre",
-    Lx=3840e3,
-    tracer_advection=false,
-    tracer_relaxation=false,
-    seasonal_wind_x=false,
-    data_steps=data_steps,
-    topography="flat",
-    bc="nonperiodic",
-    α=2,
-    nx=128,
-    Ndays=Ndays,
-    initial_cond="ncfile",
-    initpath="./data_files_forkf/128_spinup_noforcing/"
-);
+    S_kf, Prog_kf, S_adj, data, true_states = exp1_initialcond(N, sigma_data, sigma_initcond, data_spots;
+        output=false,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        tracer_advection=false,
+        tracer_relaxation=false,
+        seasonal_wind_x=false,
+        data_steps=data_steps,
+        topography="flat",
+        bc="nonperiodic",
+        α=2,
+        nx=128,
+        Ndays=Ndays,
+        initial_cond="ncfile",
+        initpath="./data_files_forkf/128_spinup_noforcing/"
+    )
+
+    return S_kf, Prog_kf, S_adj, data, true_states
+
+end
 
 ########################################################################
 # Derivative check
