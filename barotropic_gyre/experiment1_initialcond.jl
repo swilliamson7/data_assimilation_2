@@ -485,23 +485,74 @@ function exp1_FG(F, G, param_guess, data, data_spots)
 
 end
 
-function run_kf(N, data_spots, sigma_initcond, sigma_data;
-    kwargs...
-    )
+function run_exp1_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs...)
 
     data, true_states = generate_data(data_spots, sigma_data; kwargs...)
 
-    S_kf_all, Progkf_all = run_ensemble_kf(N,
-        data,
-        data_spots,
-        sigma_initcond,
-        sigma_data;
-        kwargs...
+    P_pred = ShallowWaters.Parameter(T=Float32;kwargs...)
+
+    S_pred = ShallowWaters.model_setup(P_pred)
+
+    Prog_pred = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_pred.Prog.u,
+        S_pred.Prog.v,
+        S_pred.Prog.η,
+        S_pred.Prog.sst,
+        S_pred)...
     )
 
-    return data_spots, true_states, S_kf_all, Progkf_all
+    # perturb initial conditions from those seen by the "true" model (create incorrect initial conditions)
+    Prog_pred.u = Prog_pred.u + sigma_initcond .* randn(size(Prog_pred.u))
+    Prog_pred.v = Prog_pred.v + sigma_initcond .* randn(size(Prog_pred.v))
+    Prog_pred.η = Prog_pred.η + sigma_initcond .* randn(size(Prog_pred.η))
+    
+    uic,vic,etaic = ShallowWaters.add_halo(Prog_pred.u,Prog_pred.v,Prog_pred.η,Prog_pred.sst,S_pred)
+    S_pred.Prog.u = uic
+    S_pred.Prog.v = vic
+    S_pred.Prog.η = etaic
+
+    param_guess = [vec(uic); vec(vic); vec(etaic)]
+
+    S_kf_all, Progkf_all = run_ensemble_kf(N,
+    data,
+    param_guess,
+    data_spots,
+    sigma_initcond,
+    sigma_data;
+    kwargs...
+    )
+
+    dS = Enzyme.Compiler.make_zero(S_pred)
+    # temp = [vec(dS.Prog.u);vec(dS.Prog.v); vec(dS.Prog.η)]
+
+    G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
+
+    # exp1_gradient_eval(G, param_guess, data, data_spots)
+
+    fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots)
+    obj_fg = Optim.only_fg!(fg!_closure)
+    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
+
+    return S_kf_all, Progkf_all, G, dS, data, result
 
 end
+
+# function run_kf(N, data_spots, sigma_initcond, sigma_data;
+#     kwargs...
+#     )
+
+#     data, true_states = generate_data(data_spots, sigma_data; kwargs...)
+
+#     S_kf_all, Progkf_all = run_ensemble_kf(N,
+#         data,
+#         data_spots,
+#         sigma_initcond,
+#         sigma_data;
+#         kwargs...
+#     )
+
+#     return data_spots, true_states, S_kf_all, Progkf_all
+
+# end
 
 function run_adjoint(sigma_initcond, sigma_data, data_spots; kwargs...)
 
@@ -530,7 +581,7 @@ function run_adjoint(sigma_initcond, sigma_data, data_spots; kwargs...)
 
     # J = exp1_cost_eval(param_guess, data, data_spots)
 
-    # dS = Enzyme.Compiler.make_zero(S_adj)
+    dS = Enzyme.Compiler.make_zero(S_adj)
     # temp = [vec(dS.Prog.u);vec(dS.Prog.v); vec(dS.Prog.η)]
 
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
@@ -539,7 +590,7 @@ function run_adjoint(sigma_initcond, sigma_data, data_spots; kwargs...)
 
     fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots)
     obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=10))
+    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
 
     return J, G, S_adj, dS, data, result
 
@@ -551,6 +602,29 @@ sigma_initcond = 0.01
 data_steps = 1:1:6733
 data_spots = 5:100:128*127
 Ndays = 10
+
+S_kf_all, Progkf_all, G, dS, data, result = run_exp1_initialcond(N,
+    data_spots,
+    sigma_initcond,
+    sigma_data,
+    output=false,
+    L_ratio=1,
+    g=9.81,
+    H=500,
+    wind_forcing_x="double_gyre",
+    Lx=3840e3,
+    tracer_advection=false,
+    tracer_relaxation=false,
+    seasonal_wind_x=false,
+    data_steps=data_steps,
+    topography="flat",
+    bc="nonperiodic",
+    α=2,
+    nx=128,
+    Ndays=Ndays,
+    initial_cond="ncfile",
+    initpath="./data_files_forkf/128_spinup_noforcing/"
+)
 
 # data_spots, true_states, S_kf_all, Progkf_all = run_kf(N,
 #     data_spots,
@@ -575,25 +649,25 @@ Ndays = 10
 #     initpath="./data_files_forkf/128_spinup_noforcing/"
 # )
 
-J, G, S_adj, dS, data, result = run_adjoint(sigma_initcond, sigma_data, data_spots,
-    output=false,
-    L_ratio=1,
-    g=9.81,
-    H=500,
-    wind_forcing_x="double_gyre",
-    Lx=3840e3,
-    tracer_advection=false,
-    tracer_relaxation=false,
-    seasonal_wind_x=false,
-    data_steps=data_steps,
-    topography="flat",
-    bc="nonperiodic",
-    α=2,
-    nx=128,
-    Ndays=Ndays,
-    initial_cond="ncfile",
-    initpath="./data_files_forkf/128_spinup_noforcing/"
-);
+# J, G, S_adj, dS, data, result = run_adjoint(sigma_initcond, sigma_data, data_spots,
+#     output=false,
+#     L_ratio=1,
+#     g=9.81,
+#     H=500,
+#     wind_forcing_x="double_gyre",
+#     Lx=3840e3,
+#     tracer_advection=false,
+#     tracer_relaxation=false,
+#     seasonal_wind_x=false,
+#     data_steps=data_steps,
+#     topography="flat",
+#     bc="nonperiodic",
+#     α=2,
+#     nx=128,
+#     Ndays=Ndays,
+#     initial_cond="ncfile",
+#     initpath="./data_files_forkf/128_spinup_noforcing/"
+# );
 
 ########################################################################
 # Derivative check

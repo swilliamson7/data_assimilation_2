@@ -20,9 +20,13 @@ This function will run the ensemble Kalman filter. It needs to be given:
     sigma_initcond - std of noise added to initial condition for each of the ensembles
     sigma_data - std of the noise added to data
 """
-function run_ensemble_kf(N, data, data_spots, sigma_initcond, sigma_data;
+function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma_data;
     kwargs...
     )
+
+    uic = reshape(param_guess[1:17292], 131, 132)
+    vic = reshape(param_guess[17293:34584], 132, 131)
+    etaic = reshape(param_guess[34585:end], 130, 130)
 
     Π = (I - (1 / N)*(ones(N) * ones(N)')) / sqrt(N - 1)
     W = zeros(N,N)
@@ -45,8 +49,12 @@ function run_ensemble_kf(N, data, data_spots, sigma_initcond, sigma_data;
     Progkf_all = []
     for n = 1:N
 
-        P = ShallowWaters.Parameter(T=Float32;kwargs...)
-        S_kf = ShallowWaters.model_setup(P_kf)
+        # P_kf = ShallowWaters.Parameter(T=Float32;kwargs...)
+        S_kf = ShallowWaters.model_setup(P)
+
+        S_kf.Prog.u = uic
+        S_kf.Prog.v = vic
+        S_kf.Prog.η = etaic
 
         P_kf = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_kf.Prog.u,
             S_kf.Prog.v,
@@ -55,12 +63,12 @@ function run_ensemble_kf(N, data, data_spots, sigma_initcond, sigma_data;
             S_kf)...
         )
 
-        # perturb initial conditions from those seen by the "true" model (create incorrect initial conditions)
+        # perturb initial conditions from the guessed value
         P_kf.u = P_kf.u + sigma_initcond .* randn(size(P_kf.u))
         P_kf.v = P_kf.v + sigma_initcond .* randn(size(P_kf.v))
         P_kf.η = P_kf.η + sigma_initcond .* randn(size(P_kf.η))
 
-        Z[:, n] = [u_mat_to_vec(P_kf.u); v_mat_to_vec(P_kf.v); eta_mat_to_vec(P_kf.η)]
+        Z[:, n] = [vec(P_kf.u); vec(P_kf.v); vec(P_kf.η)]
 
         uic,vic,etaic = ShallowWaters.add_halo(P_kf.u,P_kf.v,P_kf.η,P_kf.sst,S_kf)
 
@@ -87,7 +95,7 @@ function run_ensemble_kf(N, data, data_spots, sigma_initcond, sigma_data;
             push!(Progkf_all, Progkf)
         end
 
-        if t ∈ data_steps
+        if t ∈ S_for_values.parameters.data_steps
 
             d = data[:, S_for_values.parameters.j]
             E = sigma_data .* randn(size(data[:,1])[1], N)
@@ -96,7 +104,7 @@ function run_ensemble_kf(N, data, data_spots, sigma_initcond, sigma_data;
 
             for k = 1:N
 
-                Z[:, k] = [u_mat_to_vec(Progkf[k].u); v_mat_to_vec(Progkf[k].v); eta_mat_to_vec(Progkf[k].η)]
+                Z[:, k] = [vec(Progkf[k].u); vec(Progkf[k].v); vec(Progkf[k].η)]
                 U[:, k] = Z[data_spots, k]
 
             end
