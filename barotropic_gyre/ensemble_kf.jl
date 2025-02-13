@@ -20,6 +20,7 @@ This function will run the ensemble Kalman filter. It needs to be given:
     sigma_initcond - std of noise added to initial condition for each of the ensembles
     sigma_data - std of the noise added to data
 """
+
 function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma_data;
     kwargs...
     )
