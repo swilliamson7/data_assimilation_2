@@ -166,11 +166,7 @@ function one_step_function(S)
 
 end
 
-function generate_data(data_spots, sigma_data; kwargs...)
-
-    # Create the "true" model, from this we'll make data
-    P = ShallowWaters.Parameter(T=Float32; kwargs...)
-    S_true = ShallowWaters.model_setup(P)
+function generate_data(S_true, data_spots, sigma_data)
 
     data = Float32.(zeros(length(data_spots), length(S_true.parameters.data_steps)))
     true_states = []

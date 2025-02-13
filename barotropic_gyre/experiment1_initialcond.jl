@@ -44,14 +44,6 @@ function exp1_cpintegrate(S, scheme, data, data_spots)
     copyto!(Diag.SemiLagrange.sst_ref,sst)
 
     # run integration loop with checkpointing
-    exp1_loop(S, scheme, data, data_spots)
-
-    return S.parameters.J
-
-end
-
-function exp1_loop(S, scheme, data, data_spots)
-
     j = 1
 
     @checkpoint_struct scheme S for S.parameters.i = 1:S.grid.nt
@@ -193,6 +185,8 @@ function exp1_loop(S, scheme, data, data_spots)
     end
 
     return nothing
+
+    return S.parameters.J
 
 end
 
@@ -385,7 +379,7 @@ function exp1_integrate(S, data, data_spots)
 
 end
 
-function exp1_cost_eval(param_guess, data, data_spots)
+function exp1_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
 
     P = ShallowWaters.Parameter(T=Float32;
     output=false,
@@ -418,7 +412,7 @@ function exp1_cost_eval(param_guess, data, data_spots)
 
 end
 
-function exp1_gradient_eval(G, param_guess, data, data_spots)
+function exp1_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     P = ShallowWaters.Parameter(T=Float32;
     output=false,
@@ -451,15 +445,15 @@ function exp1_gradient_eval(G, param_guess, data, data_spots)
 
     dS = Enzyme.Compiler.make_zero(S)
     dS.parameters.J = 1.0
-    # snaps = Int(floor(sqrt(S.grid.nt)))
-    # revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
-    #     snaps;
-    #     verbose=1,
-    #     gc=true,
-    #     write_checkpoints=false,
-    #     write_checkpoints_filename = "",
-    #     write_checkpoints_period = 224
-    # )
+    snaps = Int(floor(sqrt(S.grid.nt)))
+    revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
+        snaps;
+        verbose=1,
+        gc=true,
+        write_checkpoints=false,
+        write_checkpoints_filename = "",
+        write_checkpoints_period = 224
+    )
 
     ddata = Enzyme.make_zero(data)
     ddata_spots = Enzyme.make_zero(data_spots)
@@ -478,18 +472,20 @@ function exp1_gradient_eval(G, param_guess, data, data_spots)
 
 end
 
-function exp1_FG(F, G, param_guess, data, data_spots)
+function exp1_FG(F, G, param_guess, data, data_spots, data_steps, Ndays)
 
-    G === nothing || exp1_gradient_eval(G, param_guess, data, data_spots)
-    F === nothing || return exp1_cost_eval(param_guess, data, data_spots)
+    G === nothing || exp1_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
+    F === nothing || return exp1_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
 
 end
 
-function run_exp1_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs...)
-
-    data, true_states = generate_data(data_spots, sigma_data; kwargs...)
+function exp1_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs...)
 
     P_pred = ShallowWaters.Parameter(T=Float32;kwargs...)
+
+    S_true = ShallowWaters.model_setup(P_pred)
+
+    data, true_states = generate_data(S_true, data_spots, sigma_data)
 
     S_pred = ShallowWaters.model_setup(P_pred)
 
@@ -528,7 +524,7 @@ function run_exp1_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs.
 
     # exp1_gradient_eval(G, param_guess, data, data_spots)
 
-    fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots)
+    fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     obj_fg = Optim.only_fg!(fg!_closure)
     result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
 
@@ -536,9 +532,9 @@ function run_exp1_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs.
     S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
     S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
     S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
-    _ = exp1_integrate(S_adj, data, data_spots)
+    _, states_adj = generate_data(S_adj, data_spots, sigma_data)
 
-    return S_kf_all, Progkf_all, G, dS, data, result, S_adj
+    return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
 
 end
 
@@ -549,9 +545,9 @@ function run_exp1()
     sigma_initcond = 0.01
     data_steps = 1:1:6733
     data_spots = 5:100:128*127
-    Ndays = 10
+    Ndays = 30
 
-    S_kf_all, Progkf_all, G, dS, data, result, S_adj = run_exp1_initialcond(N,
+    S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp1_initialcond(N,
         data_spots,
         sigma_initcond,
         sigma_data,
@@ -574,10 +570,9 @@ function run_exp1()
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
-    return S_kf_all, Progkf_all, G, dS, data, result, S_adj
+    return S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
 
 end
-
 
 ########################################################################
 # Derivative check
