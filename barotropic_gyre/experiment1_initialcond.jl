@@ -44,14 +44,6 @@ function exp1_cpintegrate(S, scheme, data, data_spots)
     copyto!(Diag.SemiLagrange.sst_ref,sst)
 
     # run integration loop with checkpointing
-    exp1_loop(S, scheme, data, data_spots)
-
-    return S.parameters.J
-
-end
-
-function exp1_loop(S, scheme, data, data_spots)
-
     j = 1
 
     @checkpoint_struct scheme S for S.parameters.i = 1:S.grid.nt
@@ -193,6 +185,8 @@ function exp1_loop(S, scheme, data, data_spots)
     end
 
     return nothing
+
+    return S.parameters.J
 
 end
 
@@ -385,7 +379,7 @@ function exp1_integrate(S, data, data_spots)
 
 end
 
-function exp1_cost_eval(param_guess, data, data_spots)
+function exp1_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
 
     P = ShallowWaters.Parameter(T=Float32;
     output=false,
@@ -418,7 +412,7 @@ function exp1_cost_eval(param_guess, data, data_spots)
 
 end
 
-function exp1_gradient_eval(G, param_guess, data, data_spots)
+function exp1_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     P = ShallowWaters.Parameter(T=Float32;
     output=false,
@@ -451,15 +445,15 @@ function exp1_gradient_eval(G, param_guess, data, data_spots)
 
     dS = Enzyme.Compiler.make_zero(S)
     dS.parameters.J = 1.0
-    # snaps = Int(floor(sqrt(S.grid.nt)))
-    # revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
-    #     snaps;
-    #     verbose=1,
-    #     gc=true,
-    #     write_checkpoints=false,
-    #     write_checkpoints_filename = "",
-    #     write_checkpoints_period = 224
-    # )
+    snaps = Int(floor(sqrt(S.grid.nt)))
+    revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
+        snaps;
+        verbose=1,
+        gc=true,
+        write_checkpoints=false,
+        write_checkpoints_filename = "",
+        write_checkpoints_period = 224
+    )
 
     ddata = Enzyme.make_zero(data)
     ddata_spots = Enzyme.make_zero(data_spots)
@@ -478,122 +472,107 @@ function exp1_gradient_eval(G, param_guess, data, data_spots)
 
 end
 
-function exp1_FG(F, G, param_guess, data, data_spots)
+function exp1_FG(F, G, param_guess, data, data_spots, data_steps, Ndays)
 
-    G === nothing || exp1_gradient_eval(G, param_guess, data, data_spots)
-    F === nothing || return exp1_cost_eval(param_guess, data, data_spots)
-
-end
-
-function run_kf(N, data_spots, sigma_initcond, sigma_data;
-    kwargs...
-    )
-
-    data, true_states = generate_data(data_spots, sigma_data; kwargs...)
-
-    S_kf_all, Progkf_all = run_ensemble_kf(N,
-        data,
-        data_spots,
-        sigma_initcond,
-        sigma_data;
-        kwargs...
-    )
-
-    return data_spots, true_states, S_kf_all, Progkf_all
+    G === nothing || exp1_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
+    F === nothing || return exp1_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
 
 end
 
-function run_adjoint(sigma_initcond, sigma_data, data_spots; kwargs...)
+function exp1_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs...)
 
-    data, true_states = generate_data(data_spots, sigma_data; kwargs...)
-    P = ShallowWaters.Parameter(T=Float32;kwargs...)
+    P_pred = ShallowWaters.Parameter(T=Float32;kwargs...)
 
-    S_adj = ShallowWaters.model_setup(P)
+    S_true = ShallowWaters.model_setup(P_pred)
 
-    P_adj = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_adj.Prog.u,
-        S_adj.Prog.v,
-        S_adj.Prog.η,
-        S_adj.Prog.sst,
-        S_adj)...
+    data, true_states = generate_data(S_true, data_spots, sigma_data)
+
+    S_pred = ShallowWaters.model_setup(P_pred)
+
+    Prog_pred = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_pred.Prog.u,
+        S_pred.Prog.v,
+        S_pred.Prog.η,
+        S_pred.Prog.sst,
+        S_pred)...
     )
 
     # perturb initial conditions from those seen by the "true" model (create incorrect initial conditions)
-    P_adj.u = P_adj.u + sigma_initcond .* randn(size(P_adj.u))
-    P_adj.v = P_adj.v + sigma_initcond .* randn(size(P_adj.v))
-    P_adj.η = P_adj.η + sigma_initcond .* randn(size(P_adj.η))
+    Prog_pred.u = Prog_pred.u + sigma_initcond .* randn(size(Prog_pred.u))
+    Prog_pred.v = Prog_pred.v + sigma_initcond .* randn(size(Prog_pred.v))
+    Prog_pred.η = Prog_pred.η + sigma_initcond .* randn(size(Prog_pred.η))
+    
+    uic,vic,etaic = ShallowWaters.add_halo(Prog_pred.u,Prog_pred.v,Prog_pred.η,Prog_pred.sst,S_pred)
+    S_pred.Prog.u = uic
+    S_pred.Prog.v = vic
+    S_pred.Prog.η = etaic
 
-    uic,vic,etaic = ShallowWaters.add_halo(P_adj.u,P_adj.v,P_adj.η,P_adj.sst,S_adj)
-    S_adj.Prog.u = uic
-    S_adj.Prog.v = vic
-    S_adj.Prog.η = etaic
     param_guess = [vec(uic); vec(vic); vec(etaic)]
 
-    # J = exp1_cost_eval(param_guess, data, data_spots)
+    S_kf_all, Progkf_all = run_ensemble_kf(N,
+    data,
+    param_guess,
+    data_spots,
+    sigma_initcond,
+    sigma_data;
+    kwargs...
+    )
 
-    # dS = Enzyme.Compiler.make_zero(S_adj)
+    dS = Enzyme.Compiler.make_zero(S_pred)
     # temp = [vec(dS.Prog.u);vec(dS.Prog.v); vec(dS.Prog.η)]
 
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
 
     # exp1_gradient_eval(G, param_guess, data, data_spots)
 
-    fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots)
+    fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=10))
+    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
 
-    return J, G, S_adj, dS, data, result
+    S_adj = ShallowWaters.model_setup(P_pred)
+    S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
+    S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
+    S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
+    _, states_adj = generate_data(S_adj, data_spots, sigma_data)
+
+    return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
 
 end
 
-N = 3
-sigma_data = 0.01
-sigma_initcond = 0.01
-data_steps = 1:1:6733
-data_spots = 5:100:128*127
-Ndays = 10
+function run_exp1()
 
-# data_spots, true_states, S_kf_all, Progkf_all = run_kf(N,
-#     data_spots,
-#     sigma_initcond,
-#     sigma_data,
-#     output=false,
-#     L_ratio=1,
-#     g=9.81,
-#     H=500,
-#     wind_forcing_x="double_gyre",
-#     Lx=3840e3,
-#     tracer_advection=false,
-#     tracer_relaxation=false,
-#     seasonal_wind_x=false,
-#     data_steps=data_steps,
-#     topography="flat",
-#     bc="nonperiodic",
-#     α=2,
-#     nx=128,
-#     Ndays=Ndays,
-#     initial_cond="ncfile",
-#     initpath="./data_files_forkf/128_spinup_noforcing/"
-# )
+    N = 3
+    sigma_data = 0.01
+    sigma_initcond = 0.01
+    data_steps = 1:1:6733
+    data_spots = 5:100:128*127
+    Ndays = 30
 
-J, G, S_adj, dS, data, result = run_adjoint(sigma_initcond, sigma_data, data_spots,
-    output=false,
-    L_ratio=1,
-    g=9.81,
-    H=500,
-    wind_forcing_x="double_gyre",
-    Lx=3840e3,
-    tracer_advection=false,
-    tracer_relaxation=false,
-    seasonal_wind_x=false,
-    data_steps=data_steps,
-    topography="flat",
-    bc="nonperiodic",
-    α=2,
-    nx=128,
-    Ndays=Ndays,
-    initial_cond="ncfile",
-    initpath="./data_files_forkf/128_spinup_noforcing/"
-);
+    S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp1_initialcond(N,
+        data_spots,
+        sigma_initcond,
+        sigma_data,
+        output=false,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        tracer_advection=false,
+        tracer_relaxation=false,
+        seasonal_wind_x=false,
+        data_steps=data_steps,
+        topography="flat",
+        bc="nonperiodic",
+        α=2,
+        nx=128,
+        Ndays=Ndays,
+        initial_cond="ncfile",
+        initpath="./data_files_forkf/128_spinup_noforcing/"
+    )
+
+    return S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
+
+end
 
 ########################################################################
 # Derivative check
