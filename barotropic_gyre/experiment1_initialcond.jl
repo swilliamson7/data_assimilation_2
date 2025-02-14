@@ -524,6 +524,9 @@ function exp1_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs...)
 
     # exp1_gradient_eval(G, param_guess, data, data_spots)
 
+    Ndays = copy(P_pred.Ndays)
+    data_steps = copy(P_pred.data_steps)
+
     fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     obj_fg = Optim.only_fg!(fg!_closure)
     result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
@@ -545,7 +548,7 @@ function run_exp1()
     sigma_initcond = 0.01
     data_steps = 1:1:6733
     data_spots = 5:100:128*127
-    Ndays = 30
+    Ndays = 10
 
     S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp1_initialcond(N,
         data_spots,
