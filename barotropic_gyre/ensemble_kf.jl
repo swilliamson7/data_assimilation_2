@@ -91,7 +91,7 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
         end
 
-        if t ∈ 30*225:30*225:S_for_values.grid.nt
+        if t ∈ 1:225:S_for_values.grid.nt
             push!(Progkf_all, Progkf)
         end
 
@@ -105,7 +105,7 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
             for k = 1:N
 
                 Z[:, k] = [vec(Progkf[k].u); vec(Progkf[k].v); vec(Progkf[k].η)]
-                U[:, k] = Z[data_spots, k]
+                U[:, k] = Z[Int.(data_spots), k]
 
             end
 

@@ -236,12 +236,13 @@ function exp1_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     ddata = Enzyme.make_zero(data)
     ddata_spots = Enzyme.make_zero(data_spots)
 
-    autodiff(Enzyme.ReverseWithPrimal, exp1_cpintegrate,
+    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), exp1_cpintegrate,
     Duplicated(S, dS),
     Const(revolve),
     Duplicated(data, ddata),
     Duplicated(data_spots, ddata_spots)
     )
+
 
     # @show dS.Prog.u[5:7,50:60]
     G .= [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η)]

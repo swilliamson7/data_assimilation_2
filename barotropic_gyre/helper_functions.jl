@@ -325,17 +325,18 @@ function generate_data(S_true, data_spots, sigma_data)
         v0rhs = convert(Diag.PrognosticVarsRHS.v,v0)
         ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
 
-        # if t ∈ 30*225:30*225:S_true.grid.nt
+        if t ∈ 1:225:S_true.grid.nt
+            @show t
             temp1 = ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)
             push!(true_states, temp1)
-        # end
+        end
 
         if t ∈ S_true.parameters.data_steps
             temp2 = u_mat_to_vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).u
             )
-            data[:, j] = Float32.(temp2[data_spots] .+ sigma_data .* randn(length(data_spots)))
+            data[:, j] = Float32.(temp2[Int.(data_spots)] .+ sigma_data .* randn(length(data_spots)))
             j += 1
         end
 

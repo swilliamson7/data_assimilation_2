@@ -529,7 +529,7 @@ function exp1_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs...)
 
     fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
+    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
 
     S_adj = ShallowWaters.model_setup(P_pred)
     S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
@@ -543,12 +543,16 @@ end
 
 function run_exp1()
 
+    x = 30:15:100
+    y = 40:10:100
+    X = x' .* ones(length(y))
+    Y = ones(length(x))' .* y
     N = 3
     sigma_data = 0.01
     sigma_initcond = 0.01
     data_steps = 1:1:6733
-    data_spots = 5:100:128*127
-    Ndays = 10
+    data_spots = vec(X .* Y)
+    Ndays = 30
 
     S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp1_initialcond(N,
         data_spots,
@@ -575,6 +579,58 @@ function run_exp1()
 
     return S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
 
+end
+
+function exp1_plots()
+
+    # S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
+
+    x = 30:10:90
+    y = 50:3:75
+    X = x' .* ones(length(y))
+    Y = ones(length(x))' .* y
+    N = 3
+    sigma_data = 0.01
+    sigma_initcond = 0.01
+    data_steps = 1:1:6733
+    data_spots = vec(X .* Y)
+    Ndays = 30
+
+    fig1, ax1, hm1 = heatmap(states_true[end].u,
+        colormap=:balance,
+        colorrange=(-maximum(states_true[end].u),
+        maximum(states_true[end].u)),
+        axis=(xlabel=L"x", ylabel=L"y")
+    );
+    scatter!(ax1, vec(X), vec(Y), color=:green);
+    Colorbar(fig1[1,2], hm1)
+    fig1
+
+    fig1, ax1, hm1 = heatmap(states_true[end].u,
+    colormap=:balance,
+    colorrange=(-maximum(states_true[end].u),
+    maximum(states_true[end].u)),
+    axis=(xlabel=L"x", ylabel=L"y")
+    );
+    ax2, hm2 = heatmap(fig1[1,2], states_adj[end].u,
+    colormap=:balance,
+    colorrange=(-maximum(states_adj[end].u),
+    maximum(states_adj[end].u)),
+    axis=(xlabel=L"x", ylabel=L"y")
+    );
+    ax3, hm3 = heatmap(fig1[2, 1], (Progkf_all[end][1].u .+ Progkf_all[end][2].u .+ Progkf_all[end][3].u) ./ 3,
+    colormap=:balance,
+    colorrange=(-maximum(Progkf_all[end][1].u),
+    maximum(Progkf_all[end][1].u)),
+    axis=(xlabel=L"x", ylabel=L"y")
+    );
+
+    ax4, hm4 = heatmap(fig1[2,2], abs.(states_true[end].u .- states_adj[end].u),
+    colormap=:amp,
+    colorrange=(0,
+    maximum(abs.(states_true[end].u .- states_adj[end].u))),
+    axis=(xlabel=L"x", ylabel=L"y")
+    )
 end
 
 ########################################################################
