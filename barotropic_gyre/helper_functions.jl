@@ -326,7 +326,6 @@ function generate_data(S_true, data_spots, sigma_data)
         ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
 
         if t ∈ 1:225:S_true.grid.nt
-            @show t
             temp1 = ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)
             push!(true_states, temp1)

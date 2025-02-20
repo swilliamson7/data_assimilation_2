@@ -76,6 +76,48 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
         S_kf.Prog.v = vic
         S_kf.Prog.η = etaic
 
+        Diag = S_kf.Diag
+        Prog = S_kf.Prog
+    
+        @unpack u,v,η,sst = Prog
+        @unpack u0,v0,η0 = Diag.RungeKutta
+        @unpack u1,v1,η1 = Diag.RungeKutta
+        @unpack du,dv,dη = Diag.Tendencies
+        @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
+        @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
+    
+        @unpack um,vm = Diag.SemiLagrange
+    
+        @unpack dynamics,RKo,RKs,tracer_advection = S_kf.parameters
+        @unpack time_scheme,compensated = S_kf.parameters
+        @unpack RKaΔt,RKbΔt = S_kf.constants
+        @unpack Δt_Δ,Δt_Δs = S_kf.constants
+    
+        @unpack nt,dtint = S_kf.grid
+        @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S_kf.grid
+    
+        # calculate layer thicknesses for initial conditions
+        ShallowWaters.thickness!(Diag.VolumeFluxes.h,η,S_kf.forcing.H)
+        ShallowWaters.Ix!(Diag.VolumeFluxes.h_u,Diag.VolumeFluxes.h)
+        ShallowWaters.Iy!(Diag.VolumeFluxes.h_v,Diag.VolumeFluxes.h)
+        ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
+    
+        # calculate PV terms for initial conditions
+        urhs = convert(Diag.PrognosticVarsRHS.u,u)
+        vrhs = convert(Diag.PrognosticVarsRHS.v,v)
+        ηrhs = convert(Diag.PrognosticVarsRHS.η,η)
+    
+        ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S_kf)
+        ShallowWaters.PVadvection!(Diag,S_kf)
+    
+        # propagate initial conditions
+        copyto!(u0,u)
+        copyto!(v0,v)
+        copyto!(η0,η)
+    
+        # store initial conditions of sst for relaxation
+        copyto!(Diag.SemiLagrange.sst_ref,sst)
+
         push!(S_all, S_kf)
 
     end

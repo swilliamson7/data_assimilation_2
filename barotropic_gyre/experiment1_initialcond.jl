@@ -359,7 +359,7 @@ function exp1_integrate(S, data, data_spots)
             S.Prog.η,
             S.Prog.sst,S)...)
 
-            tempu = u_mat_to_vec(temp.u)[data_spots]
+            tempu = u_mat_to_vec(temp.u)[Int.(data_spots)]
 
             S.parameters.J = S.parameters.J + sum((tempu - data[:, j]).^2)
 
@@ -517,27 +517,29 @@ function exp1_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs...)
     kwargs...
     )
 
-    dS = Enzyme.Compiler.make_zero(S_pred)
-    # temp = [vec(dS.Prog.u);vec(dS.Prog.v); vec(dS.Prog.η)]
+    # dS = Enzyme.Compiler.make_zero(S_pred)
+    # # temp = [vec(dS.Prog.u);vec(dS.Prog.v); vec(dS.Prog.η)]
 
-    G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
+    # G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
 
-    # exp1_gradient_eval(G, param_guess, data, data_spots)
+    # # exp1_gradient_eval(G, param_guess, data, data_spots)
 
-    Ndays = copy(P_pred.Ndays)
-    data_steps = copy(P_pred.data_steps)
+    # Ndays = copy(P_pred.Ndays)
+    # data_steps = copy(P_pred.data_steps)
 
-    fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots, data_steps, Ndays)
-    obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
+    # fg!_closure(F, G, ic) = exp1_FG(F, G, ic, data, data_spots, data_steps, Ndays)
+    # obj_fg = Optim.only_fg!(fg!_closure)
+    # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
 
-    S_adj = ShallowWaters.model_setup(P_pred)
-    S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
-    S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
-    S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
-    _, states_adj = generate_data(S_adj, data_spots, sigma_data)
+    # S_adj = ShallowWaters.model_setup(P_pred)
+    # S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
+    # S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
+    # S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
+    # _, states_adj = generate_data(S_adj, data_spots, sigma_data)
 
-    return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
+    # return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
+
+    return S_kf_all, Progkf_all
 
 end
 
@@ -547,14 +549,15 @@ function run_exp1()
     y = 40:10:100
     X = x' .* ones(length(y))
     Y = ones(length(x))' .* y
-    N = 3
-    sigma_data = 0.01
-    sigma_initcond = 0.01
+    N = 10
+    sigma_data = 0.5
+    sigma_initcond = 0.2
     data_steps = 1:1:6733
     data_spots = vec(X .* Y)
     Ndays = 30
 
-    S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp1_initialcond(N,
+    # S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj 
+    S_kf_all, Profkf_all = exp1_initialcond(N,
         data_spots,
         sigma_initcond,
         sigma_data,
@@ -577,7 +580,8 @@ function run_exp1()
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
-    return S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
+    # return S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
+    return S_kf_all, Profkf_all
 
 end
 
@@ -585,13 +589,13 @@ function exp1_plots()
 
     # S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
 
-    x = 30:10:90
-    y = 50:3:75
+    x = 30:15:100
+    y = 40:10:100
     X = x' .* ones(length(y))
     Y = ones(length(x))' .* y
-    N = 3
-    sigma_data = 0.01
-    sigma_initcond = 0.01
+    N = 7
+    sigma_data = 0.5
+    sigma_initcond = 0.2
     data_steps = 1:1:6733
     data_spots = vec(X .* Y)
     Ndays = 30
