@@ -11,4 +11,4 @@ Random.seed!(649)
 
 include("helper_functions.jl")
 include("ensemble_kf.jl")
-include("experiment1_initialcond.jl")
+include("exp1_initialcond_freqdata.jl")
