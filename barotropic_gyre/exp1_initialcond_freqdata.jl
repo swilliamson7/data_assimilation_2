@@ -717,7 +717,7 @@ function exp1_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs...)
     S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
     S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
     S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
-    _, states_adj = generate_data(S_adj, data_spots, sigma_data)
+    _, states_adj = exp1_generate_data(S_adj, data_spots, sigma_data)
 
     return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
 
@@ -778,7 +778,8 @@ function exp1_plots()
     data_spots = vec(X .* Y)
     Ndays = 30
 
-    fig1, ax1, hm1 = heatmap(states_true[end].u,
+    fig1 = Figure(size=(600, 500));
+    ax1, hm1 = heatmap(fig1[1,1], states_true[end].u,
         colormap=:balance,
         colorrange=(-maximum(states_true[end].u),
         maximum(states_true[end].u)),
@@ -787,8 +788,6 @@ function exp1_plots()
     scatter!(ax1, vec(X), vec(Y), color=:green);
     Colorbar(fig1[1,2], hm1)
     fig1
-
-
 
     # fig1, ax1, hm1 = heatmap(states_true[end].u,
     # colormap=:balance,
@@ -810,39 +809,40 @@ function exp1_plots()
     kf_avgv = kf_avgv ./ 10
 
     fig1 = Figure(size=(800,700));
-    ax1, hm1 = heatmap(fig1[1,1], states_adj[end].v,
+    ax1, hm1 = heatmap(fig1[1,1], states_adj[end].u,
     colormap=:balance,
-    colorrange=(-maximum(states_adj[end].v),
-    maximum(states_adj[end].v)),
-    axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
+    colorrange=(-maximum(states_true[end].u),
+    maximum(states_true[end].u)),
+    axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, +)")
     );
     Colorbar(fig1[1,2], hm1)
-    ax2, hm2 = heatmap(fig1[1,3], abs.(states_true[end].v .- states_adj[end].v),
+    ax2, hm2 = heatmap(fig1[1,3], abs.(states_true[end].u .- states_adj[end].u),
     colormap=:amp,
     colorrange=(0,
     1.5),
-    axis=(xlabel=L"x", ylabel=L"y", title=L"|v(x,y) - \tilde{v}(x, y, +)|")
+    axis=(xlabel=L"x", ylabel=L"y", title=L"|u(x,y) - \tilde{u}(x, y, +)|")
     )
     Colorbar(fig1[1,4], hm2)
 
-    ax3, hm3 = heatmap(fig1[2, 1], kf_avgv,
+    ax3, hm3 = heatmap(fig1[2, 1], kf_avgu,
     colormap=:balance,
-    colorrange=(-maximum(kf_avg),
-    maximum(kf_avg)),
-    axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
+    colorrange=(-maximum(states_true[end].u),
+    maximum(states_true[end].u)),
+    axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig1[2,2], hm3)
-    ax4, hm4 = heatmap(fig1[2,3], abs.(states_true[end].v .- kf_avgv),
+    ax4, hm4 = heatmap(fig1[2,3], abs.(states_true[end].u .- kf_avgu),
     colormap=:amp,
     colorrange=(0,
     1.5),
-    axis=(xlabel=L"x", ylabel=L"y", title=L"|v(x,y) - \tilde{v}(x, y)|")
+    axis=(xlabel=L"x", ylabel=L"y", title=L"|u(x,y) - \tilde{u}(x, y)|")
     )
     Colorbar(fig1[2,4], hm4)
 
     # energy plots
 
-    fig1, ax1, hm1 = heatmap((states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2),
+    fig1 = Figure(size=(600, 500))
+    ax1, hm1 = heatmap(fig1[1,1], (states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2),
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\mathcal{E}"),
     colorrange=(0,
@@ -850,7 +850,8 @@ function exp1_plots()
     );
     Colorbar(fig1[1,2], hm1)
 
-    fig1, ax1, hm1 = heatmap(states_adj[end].u[:, 1:end-1].^2 .+ states_adj[end].v[1:end-1, :].^2,
+    fig1 = Figure(size=(800, 700));
+    ax1, hm1 = heatmap(fig1[1,1], states_adj[end].u[:, 1:end-1].^2 .+ states_adj[end].v[1:end-1, :].^2,
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}(+)"),
     colorrange=(0,

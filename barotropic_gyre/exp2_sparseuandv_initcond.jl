@@ -626,8 +626,6 @@ function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     S = ShallowWaters.model_setup(P)
 
     m,n = size(S.Diag.VolumeFluxes.h)
-    @show m
-    @show n
 
     S.Prog.u = reshape(param_guess[1:17292], 131, 132)
     S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
@@ -774,15 +772,13 @@ function exp2_plots()
 
     # S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
 
-    x = 30:15:100
-    y = 40:10:100
-    X = x' .* ones(length(y))
-    Y = ones(length(x))' .* y
     N = 10
-    sigma_data = 0.5
-    sigma_initcond = 0.2
-    data_steps = 1:1:6733
-    data_spots = vec(X .* Y)
+    sigma_data = 0.01
+    sigma_initcond = 0.02
+    data_steps = 200:200:6733
+    data_spotsu = vec(Xu .* Yu)
+    data_spotsv = vec(Xu .* Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
+    data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 
     fig1 = Figure(size=(1000, 500));
@@ -795,41 +791,90 @@ function exp2_plots()
     scatter!(ax1, vec(X), vec(Y), color=:green);
     Colorbar(fig1[1,2], hm1)
 
-    ax2, hm2 = heatmap(fig1[1,3], states_true[end].v,
-        colormap=:balance,
-        colorrange=(-maximum(states_true[end].v),
-        maximum(states_true[end].v)),
-        axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)"),
-    );
-    scatter!(ax2, vec(X), vec(Y), color=:green)
-    Colorbar(fig1[1,4], hm2)
-    fig1
+    
+    kf_avgu = zeros(size(states_adj[1].u))
+    kf_avgv = zeros(size(states_adj[1].v))
+    for n = 1:10
+        kf_avgu = kf_avgu .+ Progkf_all[end][n].u
+        kf_avgv = kf_avgv .+ Progkf_all[end][n].v
+    end
+    kf_avgu = kf_avgu ./ 10
+    kf_avgv = kf_avgv ./ 10
 
-    fig1, ax1, hm1 = heatmap(states_true[end].u,
+    fig1 = Figure(size=(800,700));
+    ax1, hm1 = heatmap(fig1[1,1], states_adj[end].v,
     colormap=:balance,
-    colorrange=(-maximum(states_true[end].u),
-    maximum(states_true[end].u)),
-    axis=(xlabel=L"x", ylabel=L"y")
+    colorrange=(-maximum(states_adj[end].v),
+    maximum(states_adj[end].v)),
+    axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
     );
-    ax2, hm2 = heatmap(fig1[1,2], states_adj[end].u,
-    colormap=:balance,
-    colorrange=(-maximum(states_adj[end].u),
-    maximum(states_adj[end].u)),
-    axis=(xlabel=L"x", ylabel=L"y")
-    );
-    ax3, hm3 = heatmap(fig1[2, 1], (Progkf_all[end][1].u .+ Progkf_all[end][2].u .+ Progkf_all[end][3].u) ./ 3,
-    colormap=:balance,
-    colorrange=(-maximum(Progkf_all[end][1].u),
-    maximum(Progkf_all[end][1].u)),
-    axis=(xlabel=L"x", ylabel=L"y")
-    );
-
-    ax4, hm4 = heatmap(fig1[2,2], abs.(states_true[end].u .- states_adj[end].u),
+    Colorbar(fig1[1,2], hm1)
+    ax2, hm2 = heatmap(fig1[1,3], abs.(states_true[end].v .- states_adj[end].v),
     colormap=:amp,
     colorrange=(0,
-    maximum(abs.(states_true[end].u .- states_adj[end].u))),
-    axis=(xlabel=L"x", ylabel=L"y")
+    1.5),
+    axis=(xlabel=L"x", ylabel=L"y", title=L"|v(x,y) - \tilde{v}(x, y, +)|")
     )
+    Colorbar(fig1[1,4], hm2)
+
+    ax3, hm3 = heatmap(fig1[2, 1], kf_avgv,
+    colormap=:balance,
+    colorrange=(-maximum(kf_avg),
+    maximum(kf_avg)),
+    axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
+    );
+    Colorbar(fig1[2,2], hm3)
+    ax4, hm4 = heatmap(fig1[2,3], abs.(states_true[end].v .- kf_avgv),
+    colormap=:amp,
+    colorrange=(0,
+    1.5),
+    axis=(xlabel=L"x", ylabel=L"y", title=L"|v(x,y) - \tilde{v}(x, y)|")
+    )
+    Colorbar(fig1[2,4], hm4)
+
+    # energy plots
+
+    fig1 = Figure(size=(600, 500));
+    ax1, hm1 = heatmap(fig1[1,1], (states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2),
+    colormap=:amp,
+    axis=(xlabel=L"x", ylabel=L"y", title=L"\mathcal{E}"),
+    colorrange=(0,
+    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2))
+    );
+    Colorbar(fig1[1,2], hm1)
+
+    fig1 = Figure(size=(800, 700));
+    ax1, hm1 = heatmap(fig1[1,1], states_adj[end].u[:, 1:end-1].^2 .+ states_adj[end].v[1:end-1, :].^2,
+    colormap=:amp,
+    axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}(+)"),
+    colorrange=(0,
+    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    );
+    Colorbar(fig1[1,2], hm1)
+    ax2, hm2 = heatmap(fig1[1,3], abs.((states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2) .- (states_adj[end].u[:, 1:end-1].^2 .+ states_adj[end].v[1:end-1, :].^2)),
+    colormap=:amp,
+    colorrange=(0,
+    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}(+)|")
+    )
+    Colorbar(fig1[1,4], hm2)
+
+
+    ax3, hm3 = heatmap(fig1[2, 1], kf_avgu[:, 1:end-1].^2 .+ kf_avgv[1:end-1, :].^2,
+    colormap=:amp,
+    axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}"),
+    colorrange=(0,
+    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    );
+    Colorbar(fig1[2,2], hm3)
+    ax4, hm4 = heatmap(fig1[2,3], abs.((states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2) .- (kf_avgu[:, 1:end-1].^2 .+ kf_avgv[1:end-1, :].^2)),
+    colormap=:amp,
+    colorrange=(0,
+    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}|")
+    )
+    Colorbar(fig1[2,4], hm4)
+
 end
 
 ########################################################################

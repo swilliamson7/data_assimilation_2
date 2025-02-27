@@ -583,6 +583,7 @@ function exp3_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
     data_steps=data_steps,
     topography="flat",
     bc="nonperiodic",
+    bottom_drag="quadratic",
     α=2,
     nx=128,
     Ndays=Ndays,
@@ -593,15 +594,17 @@ function exp3_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
 
     S.Prog.u = reshape(param_guess[1:17292], 131, 132)
     S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
-    S.Prog.η = reshape(param_guess[34585:end], 130, 130)
+    S.Prog.η = reshape(param_guess[34585:end-1], 130, 130)
 
-    J = exp2_integrate(S, data, data_spots)
+    S.constants.cD = param_guess[end]
+
+    J = exp3_integrate(S, data, data_spots)
 
     return J
 
 end
 
-function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
+function exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     P = ShallowWaters.Parameter(T=Float32;
     output=false,
@@ -616,6 +619,7 @@ function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     data_steps=data_steps,
     topography="flat",
     bc="nonperiodic",
+    bottom_drag="quadratic",
     α=2,
     nx=128,
     Ndays=Ndays,
@@ -624,13 +628,7 @@ function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     )
     S = ShallowWaters.model_setup(P)
 
-    m,n = size(S.Diag.VolumeFluxes.h)
-    @show m
-    @show n
-
-    S.Prog.u = reshape(param_guess[1:17292], 131, 132)
-    S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
-    S.Prog.η = reshape(param_guess[34585:end], 130, 130)
+    S.constants.cD = param_guess[1]
 
     dS = Enzyme.Compiler.make_zero(S)
     dS.parameters.J = 1.0
@@ -647,36 +645,36 @@ function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     ddata = Enzyme.make_zero(data)
     ddata_spots = Enzyme.make_zero(data_spots)
 
-    autodiff(Enzyme.ReverseWithPrimal, exp2_integrate,
+    autodiff(Enzyme.ReverseWithPrimal, exp3_integrate,
     Duplicated(S, dS),
     Duplicated(data, ddata),
     Duplicated(data_spots, ddata_spots)
     )
 
-    # @show dS.Prog.u[5:7,50:60]
-    G .= [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η)]
-    # @show G[5*128:5*128+10]
+    G .= [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η); dS.constants.cD]
 
     return nothing
 
 end
 
-function exp2_FG(F, G, param_guess, data, data_spots, data_steps, Ndays)
+function exp3_FG(F, G, param_guess, data, data_spots, data_steps, Ndays)
 
-    G === nothing || exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
-    F === nothing || return exp2_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
+    G === nothing || exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
+    F === nothing || return exp3_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
 
 end
 
-function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwargs...)
+function exp3_bottomdrag_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs...)
 
     P_pred = ShallowWaters.Parameter(T=Float32;kwargs...)
 
     S_true = ShallowWaters.model_setup(P_pred)
 
-    data, true_states = exp2_generate_data(S_true, data_spots, sigma_data)
+    data, true_states = exp3_generate_data(S_true, data_spots, sigma_data)
 
     S_pred = ShallowWaters.model_setup(P_pred)
+
+    S_pred.constants.cD = 100 * S_true.constants.cD
 
     Prog_pred = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_pred.Prog.u,
         S_pred.Prog.v,
@@ -695,9 +693,9 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
     S_pred.Prog.v = vic
     S_pred.Prog.η = etaic
 
-    param_guess = [vec(uic); vec(vic); vec(etaic)]
+    param_guess = [vec(uic); vec(vic); vec(etaic); S_pred.constants.cD]
 
-    S_kf_all, Progkf_all = run_ensemble_kf(N,
+    S_kf_all, Progkf_all = exp3_run_ensemble_kf(N,
     data,
     param_guess,
     data_spots,
@@ -707,26 +705,27 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
     )
 
     dS = Enzyme.Compiler.make_zero(S_pred)
-    G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
+    G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η) + 1)
 
     Ndays = copy(P_pred.Ndays)
     data_steps = copy(P_pred.data_steps)
 
-    fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
+    fg!_closure(F, G, ic) = exp3_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     obj_fg = Optim.only_fg!(fg!_closure)
     result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
 
     S_adj = ShallowWaters.model_setup(P_pred)
     S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
     S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
-    S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
-    _, states_adj = exp2_generate_data(S_adj, data_spots, sigma_data)
+    S_adj.Prog.η = reshape(result.minimizer[34585:end-1], 130, 130)
+    S_adj.constants.cD = result.minimizer[end]
+    _, states_adj = exp3_generate_data(S_adj, data_spots, sigma_data)
 
     return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
 
 end
 
-function run_exp2()
+function run_exp3()
 
     xu = 30:10:100
     yu = 40:10:100
@@ -742,7 +741,7 @@ function run_exp2()
     data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 
-    S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp2_initialcond_uvdata(N,
+    S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp3_bottomdrag_initialcond(N,
         data_spots,
         sigma_initcond,
         sigma_data,
@@ -751,6 +750,7 @@ function run_exp2()
         g=9.81,
         H=500,
         wind_forcing_x="double_gyre",
+        bottom_drag="quadratic",
         Lx=3840e3,
         tracer_advection=false,
         tracer_relaxation=false,
@@ -769,7 +769,7 @@ function run_exp2()
 
 end
 
-function exp2_plots()
+function exp3_plots()
 
     # S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
 
