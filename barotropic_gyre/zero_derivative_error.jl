@@ -168,7 +168,7 @@ function integrate(S)
 
     end
 
-    return S.Prog.u[40, 40]
+    return S.Prog.u[25, 25]
 
 end
 
@@ -185,7 +185,7 @@ S = ShallowWaters.model_setup(output=false,
     bc="nonperiodic",
     α=2,
     nx=50,
-    Ndays=10
+    Ndays=20
 )
 
 dS = Enzyme.make_zero(S)
