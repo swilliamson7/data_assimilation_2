@@ -221,7 +221,7 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
         S_kf.Prog.u = uic
         S_kf.Prog.v = vic
         S_kf.Prog.η = etaic
-        S_kf.constants.cD = param_guess[end]
+        S_kf.parameters.Fx0 = param_guess[end]
 
         P_kf = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_kf.Prog.u,
             S_kf.Prog.v,

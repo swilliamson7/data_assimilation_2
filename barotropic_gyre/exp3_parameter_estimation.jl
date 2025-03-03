@@ -666,16 +666,18 @@ end
 
 function exp3_bottomdrag_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs...)
 
-    P_pred = ShallowWaters.Parameter(T=Float32;kwargs...)
+    P_true = ShallowWaters.Parameter(T=Float32;kwargs...)
 
-    S_true = ShallowWaters.model_setup(P_pred)
+    S_true = ShallowWaters.model_setup(P_true)
 
     data, true_states = exp3_generate_data(S_true, data_spots, sigma_data)
 
-    S_pred = ShallowWaters.model_setup(P_pred)
+    # initially setting up the prediction model with correct parameters
+    S_pred = ShallowWaters.model_setup(P_true)
 
-    S_pred.constants.cD = 100 * S_true.constants.cD
+    # here we perturb the ones that are going to be the "incorrect" (perturbed) parameters
 
+    S_pred.parameters.Fx0 = .001 * S_true.parameters.Fx0
     Prog_pred = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_pred.Prog.u,
         S_pred.Prog.v,
         S_pred.Prog.η,
@@ -693,7 +695,7 @@ function exp3_bottomdrag_initialcond(N, data_spots, sigma_initcond, sigma_data; 
     S_pred.Prog.v = vic
     S_pred.Prog.η = etaic
 
-    param_guess = [vec(uic); vec(vic); vec(etaic); S_pred.constants.cD]
+    param_guess = [vec(uic); vec(vic); vec(etaic); S_pred.parameters.Fx0]
 
     S_kf_all, Progkf_all = exp3_run_ensemble_kf(N,
     data,
@@ -707,8 +709,8 @@ function exp3_bottomdrag_initialcond(N, data_spots, sigma_initcond, sigma_data; 
     dS = Enzyme.Compiler.make_zero(S_pred)
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η) + 1)
 
-    Ndays = copy(P_pred.Ndays)
-    data_steps = copy(P_pred.data_steps)
+    Ndays = copy(S_pred.parameters.Ndays)
+    data_steps = copy(S_pred.parameters.data_steps)
 
     fg!_closure(F, G, ic) = exp3_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     obj_fg = Optim.only_fg!(fg!_closure)
@@ -718,7 +720,7 @@ function exp3_bottomdrag_initialcond(N, data_spots, sigma_initcond, sigma_data; 
     S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
     S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
     S_adj.Prog.η = reshape(result.minimizer[34585:end-1], 130, 130)
-    S_adj.constants.cD = result.minimizer[end]
+    S_adj.parameters.Fx0 = result.minimizer[end]
     _, states_adj = exp3_generate_data(S_adj, data_spots, sigma_data)
 
     return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
@@ -735,9 +737,9 @@ function run_exp3()
     N = 10
     sigma_data = 0.01
     sigma_initcond = 0.02
-    data_steps = 200:200:6733
-    data_spotsu = vec(Xu .* Yu)
-    data_spotsv = vec(Xu .* Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
+    data_steps = 220:220:6733
+    data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 
@@ -773,12 +775,17 @@ function exp3_plots()
 
     # S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
 
+    xu = 30:10:100
+    yu = 40:10:100
+    Xu = xu' .* ones(length(yu))
+    Yu = ones(length(xu))' .* yu
+
     N = 10
     sigma_data = 0.01
     sigma_initcond = 0.02
-    data_steps = 200:200:6733
-    data_spotsu = vec(Xu .* Yu)
-    data_spotsv = vec(Xu .* Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
+    data_steps = 220:220:6733
+    data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 

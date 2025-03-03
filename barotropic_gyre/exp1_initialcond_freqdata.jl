@@ -727,14 +727,17 @@ function run_exp1()
 
     x = 30:15:100
     y = 40:10:100
-    X = x' .* ones(length(y))
-    Y = ones(length(x))' .* y
+    Xu = xu' .* ones(length(yu))
+    Yu = ones(length(xu))' .* yu
+
     N = 10
-    sigma_data = 0.5
-    sigma_initcond = 0.2
-    data_steps = 1:1:6733
-    data_spots = vec(X .* Y)
+    sigma_data = 0.01
+    sigma_initcond = 0.02
+    data_steps = 200:200:6733
+    data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
+
 
     S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp1_initialcond(N,
         data_spots,
@@ -767,15 +770,17 @@ function exp1_plots()
 
     # S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
 
-    x = 30:15:100
-    y = 40:10:100
-    X = x' .* ones(length(y))
-    Y = ones(length(x))' .* y
+    xu = 30:10:100
+    yu = 40:10:100
+    Xu = xu' .* ones(length(yu))
+    Yu = ones(length(xu))' .* yu
+
     N = 10
-    sigma_data = 0.5
-    sigma_initcond = 0.2
-    data_steps = 1:1:6733
-    data_spots = vec(X .* Y)
+    sigma_data = 0.01
+    sigma_initcond = 0.02
+    data_steps = 200:200:6733
+    data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 
     fig1 = Figure(size=(600, 500));

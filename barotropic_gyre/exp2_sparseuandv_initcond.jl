@@ -584,6 +584,7 @@ function exp2_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
     data_steps=data_steps,
     topography="flat",
     bc="nonperiodic",
+    bottom_drag="quadratic",
     α=2,
     nx=128,
     Ndays=Ndays,
@@ -617,6 +618,7 @@ function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     data_steps=data_steps,
     topography="flat",
     bc="nonperiodic",
+    bottom_drag="quadratic",
     α=2,
     nx=128,
     Ndays=Ndays,
@@ -646,9 +648,8 @@ function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     ddata = Enzyme.make_zero(data)
     ddata_spots = Enzyme.make_zero(data_spots)
 
-    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), exp2_cpintegrate,
-    Duplicated(S, dS_cp),
-    Const(revolve),
+    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), exp2_integrate,
+    Duplicated(S, dS),
     Duplicated(data, ddata),
     Duplicated(data_spots, ddata_spots)
     )
@@ -740,7 +741,7 @@ function run_exp2()
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
     data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
-    Ndays = 10
+    Ndays = 30
 
     S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp2_initialcond_uvdata(N,
         data_spots,
@@ -754,6 +755,7 @@ function run_exp2()
         Lx=3840e3,
         tracer_advection=false,
         tracer_relaxation=false,
+        bottom_drag="quadratic",
         seasonal_wind_x=false,
         data_steps=data_steps,
         topography="flat",
@@ -773,12 +775,17 @@ function exp2_plots()
 
     # S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
 
+    xu = 30:10:100
+    yu = 40:10:100
+    Xu = xu' .* ones(length(yu))
+    Yu = ones(length(xu))' .* yu
+
     N = 10
     sigma_data = 0.01
     sigma_initcond = 0.02
-    data_steps = 200:200:6733
-    data_spotsu = vec(Xu .* Yu)
-    data_spotsv = vec(Xu .* Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
+    data_steps = 220:220:6733
+    data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 
@@ -789,10 +796,18 @@ function exp2_plots()
         maximum(states_true[end].u)),
         axis=(xlabel=L"x", ylabel=L"y", title=L"u(t = 30 \; \text{days}, x, y)"),
     );
-    scatter!(ax1, vec(X), vec(Y), color=:green);
+    scatter!(ax1, vec(Xu), vec(Yu), color=:green);
     Colorbar(fig1[1,2], hm1)
+    ax2, hm2 = heatmap(fig1[1,3], states_true[end].v,
+        colormap=:balance,
+        colorrange=(-maximum(states_true[end].v),
+        maximum(states_true[end].v)),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)"),
+    );
+    scatter!(ax2, vec(Xu), vec(Yu), color=:green);
+    Colorbar(fig1[1,4], hm2);
 
-    
+
     kf_avgu = zeros(size(states_adj[1].u))
     kf_avgv = zeros(size(states_adj[1].v))
     for n = 1:10
@@ -820,8 +835,8 @@ function exp2_plots()
 
     ax3, hm3 = heatmap(fig1[2, 1], kf_avgv,
     colormap=:balance,
-    colorrange=(-maximum(kf_avg),
-    maximum(kf_avg)),
+    colorrange=(-maximum(kf_avgv),
+    maximum(kf_avgv)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig1[2,2], hm3)
