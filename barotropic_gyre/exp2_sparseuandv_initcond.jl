@@ -359,7 +359,7 @@ function exp2_cpintegrate(S, scheme, data, data_spots)
             S.Prog.η,
             S.Prog.sst,S)...)
 
-            tempuv = [vec(temp.u);vec(temp.v)][data_spots]
+            tempuv = [vec(temp.u);vec(temp.v)][Int.(data_spots)]
 
             S.parameters.J += sum((tempuv - data[:, j]).^2)
 
@@ -646,8 +646,9 @@ function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     ddata = Enzyme.make_zero(data)
     ddata_spots = Enzyme.make_zero(data_spots)
 
-    autodiff(Enzyme.ReverseWithPrimal, exp2_integrate,
-    Duplicated(S, dS),
+    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), exp2_cpintegrate,
+    Duplicated(S, dS_cp),
+    Const(revolve),
     Duplicated(data, ddata),
     Duplicated(data_spots, ddata_spots)
     )
@@ -735,11 +736,11 @@ function run_exp2()
     N = 10
     sigma_data = 0.01
     sigma_initcond = 0.02
-    data_steps = 200:200:6733
-    data_spotsu = vec(Xu .* Yu)
-    data_spotsv = vec(Xu .* Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
+    data_steps = 220:220:6733
+    data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
-    Ndays = 30
+    Ndays = 10
 
     S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp2_initialcond_uvdata(N,
         data_spots,
