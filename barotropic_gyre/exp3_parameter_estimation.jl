@@ -714,16 +714,23 @@ function exp3_bottomdrag_initialcond(N, data_spots, sigma_initcond, sigma_data; 
 
     fg!_closure(F, G, ic) = exp3_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
+    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=2))
 
-    # S_adj = ShallowWaters.model_setup(P_pred)
-    # S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
-    # S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
-    # S_adj.Prog.η = reshape(result.minimizer[34585:end-1], 130, 130)
-    # S_adj.parameters.Fx0 = result.minimizer[end]
-    # _, states_adj = exp3_generate_data(S_adj, data_spots, sigma_data)
+    jldsave("exp3_minimizer_initcond_forcing_adjoint_030525.jld2",
+        u = reshape(result.minimizer[1:17292], 131, 132),
+        v = reshape(result.minimizer[17293:34584], 132, 131),
+        eta = reshape(result.minimizer[34585:end-1], 130, 130),
+        Fx0 = result.minimizer[end]
+    )
 
-    return S_kf_all, Progkf_all, G, dS, data, true_states, result#, S_adj, states_adj
+    S_adj = ShallowWaters.model_setup(P_pred)
+    S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
+    S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
+    S_adj.Prog.η = reshape(result.minimizer[34585:end-1], 130, 130)
+    S_adj.parameters.Fx0 = result.minimizer[end]
+    _, states_adj = exp3_generate_data(S_adj, data_spots, sigma_data)
+
+    return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
 
 end
 

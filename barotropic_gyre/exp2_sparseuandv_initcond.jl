@@ -961,3 +961,78 @@ end
 #     initial_cond="ncfile",
 #     initpath="./data_files_forkf/128_spinup_noforcing/"
 # )
+
+function trial()
+
+xu = 30:10:100
+yu = 40:10:100
+Xu = xu' .* ones(length(yu))
+Yu = ones(length(xu))' .* yu
+
+N = 10
+sigma_data = 0.01
+sigma_initcond = 0.02
+data_steps = 220:220:6733
+data_spotsu = vec((Xu.-1) .* 127 + Yu)
+data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
+data_spots = [data_spotsu; data_spotsv]
+Ndays = 30
+
+
+P_pred = ShallowWaters.Parameter(T=Float32;output=false,
+L_ratio=1,
+g=9.81,
+H=500,
+wind_forcing_x="double_gyre",
+Lx=3840e3,
+tracer_advection=false,
+tracer_relaxation=false,
+bottom_drag="quadratic",
+seasonal_wind_x=false,
+data_steps=data_steps,
+topography="flat",
+bc="nonperiodic",
+α=2,
+nx=128,
+Ndays=Ndays,
+initial_cond="ncfile",
+initpath="./data_files_forkf/128_spinup_noforcing/")
+
+S_pred = ShallowWaters.model_setup(P_pred)
+
+Prog_pred = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_pred.Prog.u,
+    S_pred.Prog.v,
+    S_pred.Prog.η,
+    S_pred.Prog.sst,
+    S_pred)...
+)
+
+# perturb initial conditions from those seen by the "true" model (create incorrect initial conditions)
+Prog_pred.u = Prog_pred.u + sigma_initcond .* randn(size(Prog_pred.u))
+Prog_pred.v = Prog_pred.v + sigma_initcond .* randn(size(Prog_pred.v))
+Prog_pred.η = Prog_pred.η + sigma_initcond .* randn(size(Prog_pred.η))
+
+uic,vic,etaic = ShallowWaters.add_halo(Prog_pred.u,Prog_pred.v,Prog_pred.η,Prog_pred.sst,S_pred)
+
+    bred_vectors = compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; output=false,
+    L_ratio=1,
+    g=9.81,
+    H=500,
+    wind_forcing_x="double_gyre",
+    Lx=3840e3,
+    tracer_advection=false,
+    tracer_relaxation=false,
+    bottom_drag="quadratic",
+    seasonal_wind_x=false,
+    data_steps=data_steps,
+    topography="flat",
+    bc="nonperiodic",
+    α=2,
+    nx=128,
+    Ndays=Ndays,
+    initial_cond="ncfile",
+    initpath="./data_files_forkf/128_spinup_noforcing/"
+    )
+
+    return bred_vectors
+end

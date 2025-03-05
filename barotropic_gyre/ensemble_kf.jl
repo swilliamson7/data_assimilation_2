@@ -352,3 +352,174 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
     return S_all, Progkf_all
 
 end
+
+"""
+This function will create N (the number of ensembles) Bred vectors, which
+will get used as the initial perturbations for the EKF
+"""
+function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
+
+    bred_vectors = []
+
+    for n = 1:N
+
+        P = ShallowWaters.Parameter(T=Float32; kwargs...)
+        S1 = ShallowWaters.model_setup(P)
+        S2 = ShallowWaters.model_setup(P)
+
+        # S1 will iterate the original unperturbed solution
+        S1.Prog.u = copy(uic)
+        S1.Prog.v = copy(vic)
+        S1.Prog.η = copy(etaic)
+
+        # S2 will iterate the perturbed solutions
+        S2.Prog.u = copy(uic)
+        S2.Prog.v = copy(vic)
+        S2.Prog.η = copy(etaic)
+
+        Prog = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S2.Prog.u,
+            S2.Prog.v,
+            S2.Prog.η,
+            S2.Prog.sst,
+            S2)...
+        )
+
+        # computing the initial, random perturbation for S2
+        uperturbation = sigma_initcond .* randn(size(Prog.u))
+        vperturbation = sigma_initcond .* randn(size(Prog.v))
+        etaperturbation = sigma_initcond .* randn(size(Prog.η))
+
+        # computing norms of the initial perturbations
+        Au = norm(uperturbation)
+        Av = norm(vperturbation)
+        Aeta = norm(etaperturbation)
+
+        # apply the perturbation to the initial condition
+        Prog.u = Prog.u + uperturbation
+        Prog.v = Prog.v + vperturbation
+        Prog.η = Prog.η + etaperturbation
+
+        upert,vpert,etapert = ShallowWaters.add_halo(Prog.u,Prog.v,Prog.η,Prog.sst,S2)
+
+        # store this in S2
+        S2.Prog.u = upert
+        S2.Prog.v = vpert
+        S2.Prog.η = etapert
+
+        # Store the two initial models to be integrated
+        S_all = []
+        push!(S_all, S1)
+        push!(S_all, S2)
+
+        # code that appears before the time integration
+        for S in S_all
+
+            Diag = S.Diag
+            Prog = S.Prog
+        
+            @unpack u,v,η,sst = Prog
+            @unpack u0,v0,η0 = Diag.RungeKutta
+            @unpack u1,v1,η1 = Diag.RungeKutta
+            @unpack du,dv,dη = Diag.Tendencies
+            @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
+            @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
+        
+            @unpack um,vm = Diag.SemiLagrange
+        
+            @unpack dynamics,RKo,RKs,tracer_advection = S.parameters
+            @unpack time_scheme,compensated = S.parameters
+            @unpack RKaΔt,RKbΔt = S.constants
+            @unpack Δt_Δ,Δt_Δs = S.constants
+        
+            @unpack nt,dtint = S.grid
+            @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S.grid
+        
+            # calculate layer thicknesses for initial conditions
+            ShallowWaters.thickness!(Diag.VolumeFluxes.h,η,S.forcing.H)
+            ShallowWaters.Ix!(Diag.VolumeFluxes.h_u,Diag.VolumeFluxes.h)
+            ShallowWaters.Iy!(Diag.VolumeFluxes.h_v,Diag.VolumeFluxes.h)
+            ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
+        
+            # calculate PV terms for initial conditions
+            urhs = convert(Diag.PrognosticVarsRHS.u,u)
+            vrhs = convert(Diag.PrognosticVarsRHS.v,v)
+            ηrhs = convert(Diag.PrognosticVarsRHS.η,η)
+        
+            ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S)
+            ShallowWaters.PVadvection!(Diag,S)
+        
+            # propagate initial conditions
+            copyto!(u0,u)
+            copyto!(v0,v)
+            copyto!(η0,η)
+        
+            # store initial conditions of sst for relaxation
+            copyto!(Diag.SemiLagrange.sst_ref,sst)
+        end
+
+        # integrate and compute the Bred vector, roughly three days of integrating (a somewhat randomly chosen
+        # amount of time)
+        for t = 1:675
+
+            # if we're at the final timestep then we want to store the bred vector
+            if t === 675
+
+                p1 = one_step_function(S_all[1])
+                p2 = one_step_function(S_all[2])
+
+                normu = norm(u)
+                normv = norm(v)
+                normeta = norm(eta)
+
+                uperturbation = (p1.u - p2.u) * (Au / normu)
+                vperturbation = (p1.v - p2.v) * (Av / normv)
+                etaperturbation = (p1.η - p2.η) * (Aeta / normeta)
+
+                push!(bred_vectors, [vec(uperturbation); vec(vperturbation); vec(etaperturbation)])
+
+            else
+
+            p1 = one_step_function(S_all[1])
+            p2 = one_step_function(S_all[2])
+
+            normu = norm(u)
+            normv = norm(v)
+            normeta = norm(eta)
+
+            uperturbation = (p1.u - p2.u) * (Au / normu)
+            vperturbation = (p1.v - p2.v) * (Av / normv)
+            etaperturbation = (p1.η - p2.η) * (Aeta / normeta)
+
+            Prog1 = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_all[1].Prog.u,
+            S_all[1].Prog.v,
+            S_all[1].Prog.η,
+            S_all[1].Prog.sst,
+            S_all[1])...
+            )
+
+            Prog2 = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_all[2].Prog.u,
+            S_all[2].Prog.v,
+            S_all[2].Prog.η,
+            S_all[2].Prog.sst,
+            S_all[2])...
+            )
+
+            Prog2.u = copy(Prog1.u) + uperturbation
+            Prog2.v = copy(Prog1.v) + vperturbation
+            Prog2.η = copy(Prog1.η) + etaperturbation
+
+            uic,vic,etaic = ShallowWaters.add_halo(Prog2.u,Prog2.v,Prog2.η,Prog2.sst,S_all[2])
+
+            S_all[2].Prog.u = uic
+            S_all[2].Prog.v = vic
+            S_all[2].Prog.η = etaic
+
+            end
+
+        end
+
+    end
+
+    return bred_vectors
+
+end
