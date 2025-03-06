@@ -3,7 +3,7 @@ using Enzyme
 
 using CairoMakie, LinearAlgebra, Statistics, Random
 using Parameters, UnPack, LaTeXStrings
-using Optim
+using Optim, JLD2
 using ShallowWaters
 
 # Chosen random seed 649, will be used for all experiments 

@@ -47,6 +47,9 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
     Z = zeros(48896, N)
     S_all = []
     Progkf_all = []
+
+    bred_vectors = compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
+
     for n = 1:N
 
         # P_kf = ShallowWaters.Parameter(T=Float32;kwargs...)
@@ -63,10 +66,15 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
             S_kf)...
         )
 
-        # perturb initial conditions from the guessed value for each ensemble member
-        P_kf.u = P_kf.u + sigma_initcond .* randn(size(P_kf.u))
-        P_kf.v = P_kf.v + sigma_initcond .* randn(size(P_kf.v))
-        P_kf.η = P_kf.η + sigma_initcond .* randn(size(P_kf.η))
+        # using bred vectors to perturb each initial condition in each ensemble member
+        P_kf.u = P_kf.u + reshape(bred_vectors[n][1:127*128], 127, 128)
+        P_kf.v = P_kf.v + reshape(bred_vectors[n][(127*128+1):32512], 128, 127)
+        P_kf.η = P_kf.η + reshape(bred_vectors[n][32513:end], 128, 128)
+
+        # # perturb initial conditions from the guessed value for each ensemble member
+        # P_kf.u = P_kf.u + sigma_initcond .* randn(size(P_kf.u))
+        # P_kf.v = P_kf.v + sigma_initcond .* randn(size(P_kf.v))
+        # P_kf.η = P_kf.η + sigma_initcond .* randn(size(P_kf.η))
 
         Z[:, n] = [vec(P_kf.u); vec(P_kf.v); vec(P_kf.η)]
 
@@ -467,9 +475,9 @@ function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
                 p1 = one_step_function(S_all[1])
                 p2 = one_step_function(S_all[2])
 
-                normu = norm(u)
-                normv = norm(v)
-                normeta = norm(eta)
+                normu = norm(p2.u)
+                normv = norm(p2.v)
+                normeta = norm(p2.η)
 
                 uperturbation = (p1.u - p2.u) * (Au / normu)
                 vperturbation = (p1.v - p2.v) * (Av / normv)
@@ -482,9 +490,9 @@ function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
             p1 = one_step_function(S_all[1])
             p2 = one_step_function(S_all[2])
 
-            normu = norm(u)
-            normv = norm(v)
-            normeta = norm(eta)
+            normu = norm(p2.u)
+            normv = norm(p2.v)
+            normeta = norm(p2.η)
 
             uperturbation = (p1.u - p2.u) * (Au / normu)
             vperturbation = (p1.v - p2.v) * (Av / normv)
