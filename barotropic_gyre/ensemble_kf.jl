@@ -20,9 +20,12 @@ This function will run the ensemble Kalman filter. It needs to be given:
     sigma_initcond - std of noise added to initial condition for each of the ensembles
     sigma_data - std of the noise added to data
 """
-function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma_data;
+function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma_data;compute_freq=false,
     kwargs...
     )
+
+    freqpoweru = []
+    freqpowerv = []
 
     uic = reshape(param_guess[1:17292], 131, 132)
     vic = reshape(param_guess[17293:34584], 132, 131)
@@ -188,9 +191,24 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
         end
 
+        if compute_freq
+
+            if t ∈ 10:10:S_for_values.grid.nt
+
+                kf_avgu = zeros(127, 128)
+                kf_avgv = zeros(128,127)
+                for n = 1:10
+                    kf_avgu = kf_avgu .+ Progkf_all[t][n].u
+                    kf_avgv = kf_avgv .+ Progkf_all[t][n].v
+                end
+
+            end
+
+        end
+
     end
 
-    return S_all, Progkf_all
+    return S_all, Progkf_all, freqpoweru, freqpowerv
 
 end
 
