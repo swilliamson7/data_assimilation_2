@@ -394,7 +394,7 @@ function exp2_cpintegrate(S, scheme, data, data_spots)
 
     end
 
-    return nothing
+    # return nothing
 
     return S.parameters.J
 
@@ -617,9 +617,9 @@ function exp2_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
     S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
     S.Prog.η = reshape(param_guess[34585:end], 130, 130)
 
-    J = exp2_integrate(S, data, data_spots)
+    exp2_integrate(S, data, data_spots)
 
-    return J
+    return S.parameters.J
 
 end
 
@@ -719,15 +719,15 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
 
     param_guess = [vec(uic); vec(vic); vec(etaic)]
 
-    S_kf_all, Progkf_all, _, _ = run_ensemble_kf(N,
-    data,
-    param_guess,
-    data_spots,
-    sigma_initcond,
-    sigma_data;
-    compute_freq=false,
-    kwargs...
-    )
+    # S_kf_all, Progkf_all, _, _ = run_ensemble_kf(N,
+    # data,
+    # param_guess,
+    # data_spots,
+    # sigma_initcond,
+    # sigma_data;
+    # compute_freq=false,
+    # kwargs...
+    # )
 
     dS = Enzyme.Compiler.make_zero(S_pred)
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
@@ -737,7 +737,7 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
 
     fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
+    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
 
     # uad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["u"]
     # vad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["v"]
@@ -753,7 +753,8 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
     _, states_adj, _, _ = exp2_generate_data(S_adj, data_spots, sigma_data)
 
     # return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
-    return S_kf_all, Progkf_all, data, true_states, S_adj, states_adj
+    # return S_kf_all, Progkf_all, data, true_states, S_adj, states_adj, result
+    return result
 
 
 end
