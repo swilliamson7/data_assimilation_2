@@ -253,7 +253,7 @@ function exp2_cpintegrate(S, scheme, data, data_spots)
     copyto!(Diag.SemiLagrange.sst_ref,sst)
 
     # run integration loop with checkpointing
-    j = 1
+    S.parameters.j = 1
 
     @checkpoint_struct scheme S for S.parameters.i = 1:S.grid.nt
 
@@ -373,6 +373,7 @@ function exp2_cpintegrate(S, scheme, data, data_spots)
 
         if S.parameters.i in S.parameters.data_steps
 
+            @show S.parameters.j
             temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S.Prog.u,
             S.Prog.v,
             S.Prog.η,
@@ -380,9 +381,9 @@ function exp2_cpintegrate(S, scheme, data, data_spots)
 
             tempuv = [vec(temp.u);vec(temp.v)][Int.(data_spots)]
 
-            S.parameters.J += sum((tempuv - data[:, j]).^2)
+            S.parameters.J += sum((tempuv - data[:, S.parameters.j]).^2)
 
-            j += 1
+            S.parameters.j += 1
 
         end
 
@@ -625,24 +626,24 @@ end
 function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     P = ShallowWaters.Parameter(T=Float32;
-    output=false,
-    L_ratio=1,
-    g=9.81,
-    H=500,
-    wind_forcing_x="double_gyre",
-    Lx=3840e3,
-    tracer_advection=false,
-    tracer_relaxation=false,
-    seasonal_wind_x=false,
-    data_steps=data_steps,
-    topography="flat",
-    bc="nonperiodic",
-    bottom_drag="quadratic",
-    α=2,
-    nx=128,
-    Ndays=Ndays,
-    initial_cond="ncfile",
-    initpath="./data_files_forkf/128_spinup_noforcing/"
+        output=false,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        tracer_advection=false,
+        tracer_relaxation=false,
+        bottom_drag="quadratic",
+        seasonal_wind_x=false,
+        data_steps=data_steps,
+        topography="flat",
+        bc="nonperiodic",
+        α=2,
+        nx=128,
+        Ndays=Ndays,
+        initial_cond="ncfile",
+        initpath="./data_files_forkf/128_spinup_noforcing/"
     )
     S = ShallowWaters.model_setup(P)
 
