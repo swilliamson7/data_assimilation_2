@@ -236,7 +236,7 @@ function exp1_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     ddata = Enzyme.make_zero(data)
     ddata_spots = Enzyme.make_zero(data_spots)
 
-    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), exp1_cpintegrate,
+    autodiff(EnzymeCore.set_runtime_activity(Reverse, config), exp1_cpintegrate,
     Duplicated(S, dS),
     Const(revolve),
     Duplicated(data, ddata),
@@ -287,7 +287,7 @@ function exp1_initialcond()
 
     S_true = ShallowWaters.model_setup(P_pred)
 
-    data, true_states = generate_data(S_true, data_spots, sigma_data)
+    data, true_states = exp1_generate_data(S_true, data_spots, sigma_data)
 
     S_pred = ShallowWaters.model_setup(P_pred)
 

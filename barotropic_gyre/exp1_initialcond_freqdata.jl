@@ -644,8 +644,9 @@ function exp1_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     ddata = Enzyme.make_zero(data)
     ddata_spots = Enzyme.make_zero(data_spots)
 
-    autodiff(Enzyme.ReverseWithPrimal, exp1_integrate,
+    autodiff(Enzyme.ReverseWithPrimal, exp1_cpintegrate,
     Duplicated(S, dS),
+    Const(revolve),
     Duplicated(data, ddata),
     Duplicated(data_spots, ddata_spots)
     )
@@ -725,18 +726,20 @@ end
 
 function run_exp1()
 
-    x = 30:15:100
-    y = 40:10:100
+    xu = 30:10:100
+    yu = 40:10:100
     Xu = xu' .* ones(length(yu))
     Yu = ones(length(xu))' .* yu
 
     N = 10
     sigma_data = 0.01
     sigma_initcond = 0.02
-    data_steps = 200:200:6733
+    data_steps = 220:220:6733
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
+
 
 
     S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp1_initialcond(N,

@@ -667,8 +667,9 @@ function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     ddata = Enzyme.make_zero(data)
     ddata_spots = Enzyme.make_zero(data_spots)
 
-    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), exp2_integrate,
+    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), exp2_cpintegrate,
     Duplicated(S, dS),
+    Const(revolve),
     Duplicated(data, ddata),
     Duplicated(data_spots, ddata_spots)
     )
@@ -733,21 +734,21 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
     Ndays = copy(P_pred.Ndays)
     data_steps = copy(P_pred.data_steps)
 
-    # fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
-    # obj_fg = Optim.only_fg!(fg!_closure)
-    # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
+    fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
+    obj_fg = Optim.only_fg!(fg!_closure)
+    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
 
-    uad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["u"]
-    vad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["v"]
-    etaad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["eta"]
+    # uad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["u"]
+    # vad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["v"]
+    # etaad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["eta"]
 
     S_adj = ShallowWaters.model_setup(P_pred)
-    S_adj.Prog.u = uad
-    S_adj.Prog.v = vad
-    S_adj.Prog.η = etaad
-    # S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
-    # S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
-    # S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
+    # S_adj.Prog.u = uad
+    # S_adj.Prog.v = vad
+    # S_adj.Prog.η = etaad
+    S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
+    S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
+    S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
     _, states_adj, _, _ = exp2_generate_data(S_adj, data_spots, sigma_data)
 
     # return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
