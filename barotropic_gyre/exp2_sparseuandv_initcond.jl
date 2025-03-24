@@ -719,15 +719,15 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
 
     param_guess = [vec(uic); vec(vic); vec(etaic)]
 
-    # S_kf_all, Progkf_all, _, _ = run_ensemble_kf(N,
-    # data,
-    # param_guess,
-    # data_spots,
-    # sigma_initcond,
-    # sigma_data;
-    # compute_freq=false,
-    # kwargs...
-    # )
+    S_kf_all, Progkf_all, _, _ = run_ensemble_kf(N,
+    data,
+    param_guess,
+    data_spots,
+    sigma_initcond,
+    sigma_data;
+    compute_freq=false,
+    kwargs...
+    )
 
     dS = Enzyme.Compiler.make_zero(S_pred)
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
@@ -752,9 +752,8 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
     S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
     _, states_adj, _, _ = exp2_generate_data(S_adj, data_spots, sigma_data)
 
-    # return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
+    return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
     # return S_kf_all, Progkf_all, data, true_states, S_adj, states_adj, result
-    return result
 
 
 end
@@ -775,7 +774,7 @@ function run_exp2()
     data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 
-    S_kf_all, Progkf_all, data, true_states, S_adj, states_adj = exp2_initialcond_uvdata(N,
+    S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj = exp2_initialcond_uvdata(N,
         data_spots,
         sigma_initcond,
         sigma_data,
@@ -800,7 +799,7 @@ function run_exp2()
     )
 
     # return S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
-    return S_kf_all, Progkf_all, data, true_states, S_adj, states_adj
+    return S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
 
 end
 
@@ -907,7 +906,6 @@ function exp2_plots()
     axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}(+)|")
     )
     Colorbar(fig1[1,4], hm2)
-
 
     ax3, hm3 = heatmap(fig1[2, 1], kf_avgu[:, 1:end-1].^2 .+ kf_avgv[1:end-1, :].^2,
     colormap=:amp,

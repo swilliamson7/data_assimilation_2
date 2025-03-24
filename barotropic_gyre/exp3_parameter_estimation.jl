@@ -234,7 +234,7 @@ function exp3_cpintegrate(S, scheme, data, data_spots)
     copyto!(Diag.SemiLagrange.sst_ref,sst)
 
     # run integration loop with checkpointing
-    j = 1
+    S.parameters.j = 1
 
     @checkpoint_struct scheme S for S.parameters.i = 1:S.grid.nt
 
@@ -359,11 +359,11 @@ function exp3_cpintegrate(S, scheme, data, data_spots)
             S.Prog.η,
             S.Prog.sst,S)...)
 
-            tempuv = [vec(temp.u);vec(temp.v)][data_spots]
+            tempuv = [vec(temp.u);vec(temp.v)][Int.(data_spots)]
 
-            S.parameters.J += sum((tempuv - data[:, j]).^2)
+            S.parameters.J += sum((tempuv - data[:, S.parameters.j]).^2)
 
-            j += 1
+            S.parameters.j += 1
 
         end
 
@@ -645,13 +645,14 @@ function exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     ddata = Enzyme.make_zero(data)
     ddata_spots = Enzyme.make_zero(data_spots)
 
-    autodiff(Enzyme.ReverseWithPrimal, exp3_integrate,
+    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), exp3_cpintegrate,
     Duplicated(S, dS),
+    Const(revolve),
     Duplicated(data, ddata),
     Duplicated(data_spots, ddata_spots)
     )
 
-    G .= [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η); dS.constants.cD]
+    G .= [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η); dS.parameters.Fx0]
 
     return nothing
 
@@ -723,7 +724,7 @@ function exp3_bottomdrag_initialcond(N, data_spots, sigma_initcond, sigma_data; 
         Fx0 = result.minimizer[end]
     )
 
-    S_adj = ShallowWaters.model_setup(P_pred)
+    S_adj = ShallowWaters.model_setup(Prog_pred)
     S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
     S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
     S_adj.Prog.η = reshape(result.minimizer[34585:end-1], 130, 130)
@@ -750,7 +751,7 @@ function run_exp3()
     data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 
-    S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj = exp3_bottomdrag_initialcond(N,
+    S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj = exp3_bottomdrag_initialcond(N,
         data_spots,
         sigma_initcond,
         sigma_data,
@@ -774,7 +775,7 @@ function run_exp3()
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
-    return S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
+    return S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
 
 end
 
