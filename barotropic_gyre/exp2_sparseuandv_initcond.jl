@@ -394,8 +394,6 @@ function exp2_cpintegrate(S, scheme, data, data_spots)
 
     end
 
-    # return nothing
-
     return S.parameters.J
 
 end
@@ -444,7 +442,7 @@ function exp2_integrate(S, data, data_spots)
 
     # store initial conditions of sst for relaxation
     copyto!(Diag.SemiLagrange.sst_ref,sst)
-    j = 1
+    S.parameters.j = 1
 
     # run integration loop with checkpointing
     for S.parameters.i = 1:S.grid.nt
@@ -571,9 +569,9 @@ function exp2_integrate(S, data, data_spots)
 
             tempuv = [vec(temp.u);vec(temp.v)][Int.(data_spots)]
 
-            S.parameters.J += sum((tempuv - data[:, j]).^2)
+            S.parameters.J += sum((tempuv - data[:, S.parameters.j]).^2)
 
-            j += 1
+            S.parameters.j += 1
 
         end
 
@@ -654,7 +652,7 @@ function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     S.Prog.η = reshape(param_guess[34585:end], 130, 130)
 
     dS = Enzyme.Compiler.make_zero(S)
-    dS.parameters.J = 1.0
+    # dS.parameters.J = 1.0
     snaps = Int(floor(sqrt(S.grid.nt)))
     revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
         snaps;
@@ -772,7 +770,7 @@ function run_exp2()
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
     data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
-    Ndays = 30
+    Ndays = 1
 
     S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj = exp2_initialcond_uvdata(N,
         data_spots,

@@ -374,8 +374,6 @@ function exp3_cpintegrate(S, scheme, data, data_spots)
 
     end
 
-    return nothing
-
     return S.parameters.J
 
 end
@@ -628,10 +626,13 @@ function exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     )
     S = ShallowWaters.model_setup(P)
 
-    S.constants.cD = param_guess[1]
+    S.Prog.u = reshape(param_guess[1:17292], 131, 132)
+    S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
+    S.Prog.η = reshape(param_guess[34585:end-1], 130, 130)
+    S.parameters.Fx0 = param_guess[end]
 
     dS = Enzyme.Compiler.make_zero(S)
-    dS.parameters.J = 1.0
+    # dS.parameters.J = 1.0
     snaps = Int(floor(sqrt(S.grid.nt)))
     revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
         snaps;
