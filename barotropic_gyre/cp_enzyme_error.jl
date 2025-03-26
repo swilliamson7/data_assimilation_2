@@ -453,7 +453,7 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     G .= [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η)]
 
-    return nothing
+    return S, dS
 
 end
 
@@ -523,15 +523,15 @@ function run()
     dS = Enzyme.Compiler.make_zero(S_pred)
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
 
-    gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
+    S, dS = gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     # fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     # obj_fg = Optim.only_fg!(fg!_closure)
     # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
 
 
-    return G
+    return S, dS
 
 end
 
-G = run()
+S, dS = run()
