@@ -4,3 +4,4 @@ three_mass_spring/Enzyme.jl/
 barotropic_gyre/ShallowWaters.jl/
 *.txt
 *.nc
+*.zip
