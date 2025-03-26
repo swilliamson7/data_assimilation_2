@@ -470,7 +470,7 @@ function run()
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
     data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
-    Ndays = 30
+    Ndays = 1
 
     P_pred = ShallowWaters.Parameter(T=Float32;
     output=false,
@@ -523,15 +523,15 @@ function run()
     dS = Enzyme.Compiler.make_zero(S_pred)
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
 
-    # gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
+    gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
-    fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
-    obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
+    # fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
+    # obj_fg = Optim.only_fg!(fg!_closure)
+    # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
 
 
-    return result
+    return G
 
 end
 
-result = run()
+G = run()
