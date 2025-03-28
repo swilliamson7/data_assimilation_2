@@ -1,5 +1,12 @@
+using Checkpointing
 include("BarotropicGyre.jl")
 
+mutable struct Chkp
+# mutable struct Chkp{MT}
+    S::ShallowWaters.ModelSetup
+    data::Matrix{Float32}
+    data_spots::Vector{Int}
+end
 function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
 
     data = Float32.(zeros(length(data_spots), length(S_true.parameters.data_steps)))
@@ -56,21 +63,21 @@ function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
 
         Diag = S_true.Diag
         Prog = S_true.Prog
-    
+
         @unpack u,v,η,sst = Prog
         @unpack u0,v0,η0 = Diag.RungeKutta
         @unpack u1,v1,η1 = Diag.RungeKutta
         @unpack du,dv,dη = Diag.Tendencies
         @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
         @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
-    
+
         @unpack um,vm = Diag.SemiLagrange
-    
+
         @unpack dynamics,RKo,RKs,tracer_advection = S_true.parameters
         @unpack time_scheme,compensated = S_true.parameters
         @unpack RKaΔt,RKbΔt = S_true.constants
         @unpack Δt_Δ,Δt_Δs = S_true.constants
-    
+
         @unpack nt,dtint = S_true.grid
         @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S_true.grid
         i = S_true.parameters.i
@@ -158,7 +165,7 @@ function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
         end
 
         # TRACER ADVECTION
-        u0rhs = convert(Diag.PrognosticVarsRHS.u,u0) 
+        u0rhs = convert(Diag.PrognosticVarsRHS.u,u0)
         v0rhs = convert(Diag.PrognosticVarsRHS.v,v0)
         ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
 
@@ -175,12 +182,12 @@ function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).u)
             tempv = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).v)
-            
+
             data[:, j] = Float32.([tempu; tempv][Int.(data_spots)] .+ sigma_data .* randn(length(data_spots)))
             j += 1
         end
 
-        if compute_freq 
+        if compute_freq
 
             if t ∈ 10:10:S_true.grid.nt
 
@@ -209,7 +216,8 @@ function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
 
 end
 
-function cpintegrate(S, scheme, data, data_spots)
+function cpintegrate(chkp, scheme)
+    S = chkp.S
 
     # setup
     Diag = S.Diag
@@ -255,27 +263,31 @@ function cpintegrate(S, scheme, data, data_spots)
     copyto!(Diag.SemiLagrange.sst_ref,sst)
 
     # run integration loop with checkpointing
+    S.parameters.i = 1
     S.parameters.j = 1
-
-    @checkpoint_struct scheme S for S.parameters.i = 1:S.grid.nt
+    for chkp.S.parameters.i = 1:chkp.S.grid.nt
+    # @checkpoint_struct scheme chkp for chkp.S.parameters.i = 1:chkp.S.grid.nt
+        S = chkp.S
+        data = chkp.data
+        data_spots = chkp.data_spots
 
         Diag = S.Diag
         Prog = S.Prog
-    
+
         @unpack u,v,η,sst = Prog
         @unpack u0,v0,η0 = Diag.RungeKutta
         @unpack u1,v1,η1 = Diag.RungeKutta
         @unpack du,dv,dη = Diag.Tendencies
         @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
         @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
-    
+
         @unpack um,vm = Diag.SemiLagrange
-    
+
         @unpack dynamics,RKo,RKs,tracer_advection = S.parameters
         @unpack time_scheme,compensated = S.parameters
         @unpack RKaΔt,RKbΔt = S.constants
         @unpack Δt_Δ,Δt_Δs = S.constants
-    
+
         @unpack nt,dtint = S.grid
         @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S.grid
         t = S.t
@@ -367,7 +379,7 @@ function cpintegrate(S, scheme, data, data_spots)
         t += dtint
 
         # TRACER ADVECTION
-        u0rhs = convert(Diag.PrognosticVarsRHS.u,u0) 
+        u0rhs = convert(Diag.PrognosticVarsRHS.u,u0)
         v0rhs = convert(Diag.PrognosticVarsRHS.v,v0)
         ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S)
 
@@ -395,9 +407,7 @@ function cpintegrate(S, scheme, data, data_spots)
 
     end
 
-    # return nothing
-
-    return S.parameters.J
+    return nothing
 
 end
 
@@ -432,7 +442,7 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     dS = Enzyme.Compiler.make_zero(S)
     snaps = Int(floor(sqrt(S.grid.nt)))
-    revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
+    revolve = Revolve{Chkp}(S.grid.nt,
         snaps;
         verbose=1,
         gc=true,
@@ -440,20 +450,21 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
         write_checkpoints_filename = "",
         write_checkpoints_period = 224
     )
+    data_spots = Int.(data_spots)
 
-    ddata = Enzyme.make_zero(data)
-    ddata_spots = Enzyme.make_zero(data_spots)
+    chkp = Chkp(S, data, data_spots)
+    dchkp = Enzyme.make_zero(chkp)
 
-    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), cpintegrate,
-    Duplicated(S, dS),
+    # Explicit seed
+    dchkp.S.parameters.J = 1.0
+    autodiff(set_runtime_activity(Enzyme.Reverse), cpintegrate,
+    Duplicated(chkp, dchkp),
     Const(revolve),
-    Duplicated(data, ddata),
-    Duplicated(data_spots, ddata_spots)
     )
 
     G .= [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η)]
 
-    return S, dS
+    return S, dS, G
 
 end
 
@@ -509,7 +520,7 @@ function run()
     Prog_pred.u = Prog_pred.u + sigma_initcond .* randn(size(Prog_pred.u))
     Prog_pred.v = Prog_pred.v + sigma_initcond .* randn(size(Prog_pred.v))
     Prog_pred.η = Prog_pred.η + sigma_initcond .* randn(size(Prog_pred.η))
-    
+
     uic,vic,etaic = ShallowWaters.add_halo(Prog_pred.u,Prog_pred.v,Prog_pred.η,Prog_pred.sst,S_pred)
     S_pred.Prog.u = uic
     S_pred.Prog.v = vic
@@ -522,16 +533,19 @@ function run()
 
     dS = Enzyme.Compiler.make_zero(S_pred)
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
+    @show typeof(data)
+    @show typeof(data_spots)
 
-    S, dS = gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
+    S, dS, G = gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     # fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     # obj_fg = Optim.only_fg!(fg!_closure)
     # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
 
 
-    return S, dS
+    return S, dS, G
 
 end
 
-S, dS = run()
+S, dS, G = run()
+@show norm(G)
