@@ -1,6 +1,8 @@
+using Checkpointing
 include("BarotropicGyre.jl")
 
 mutable struct Chkp
+# mutable struct Chkp{MT}
     S::ShallowWaters.ModelSetup
     data::Matrix{Float32}
     data_spots::Vector{Int}
@@ -261,9 +263,10 @@ function cpintegrate(chkp, scheme)
     copyto!(Diag.SemiLagrange.sst_ref,sst)
 
     # run integration loop with checkpointing
+    S.parameters.i = 1
     S.parameters.j = 1
-    # for chkp.S.parameters.i = 1:chkp.S.grid.nt
-    @checkpoint_struct scheme chkp for chkp.S.parameters.i = 1:chkp.S.grid.nt
+    for chkp.S.parameters.i = 1:chkp.S.grid.nt
+    # @checkpoint_struct scheme chkp for chkp.S.parameters.i = 1:chkp.S.grid.nt
         S = chkp.S
         data = chkp.data
         data_spots = chkp.data_spots
@@ -404,9 +407,7 @@ function cpintegrate(chkp, scheme)
 
     end
 
-    # return nothing
-
-    return chkp.S.parameters.J
+    return nothing
 
 end
 
@@ -440,7 +441,6 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     S.Prog.η = reshape(param_guess[34585:end], 130, 130)
 
     dS = Enzyme.Compiler.make_zero(S)
-    @show S.grid.nt
     snaps = Int(floor(sqrt(S.grid.nt)))
     revolve = Revolve{Chkp}(S.grid.nt,
         snaps;
@@ -450,13 +450,13 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
         write_checkpoints_filename = "",
         write_checkpoints_period = 224
     )
-    # revolve = Periodic{ShallowWaters.ModelSetup}(S.grid.nt,
-    #     snaps;
-    # )
     data_spots = Int.(data_spots)
-    chkp = Chkp(S, data, data_spots)
 
+    chkp = Chkp(S, data, data_spots)
     dchkp = Enzyme.make_zero(chkp)
+
+    # Explicit seed
+    dchkp.S.parameters.J = 1.0
     autodiff(set_runtime_activity(Enzyme.Reverse), cpintegrate,
     Duplicated(chkp, dchkp),
     Const(revolve),
@@ -464,7 +464,7 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     G .= [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η)]
 
-    return S, dS
+    return S, dS, G
 
 end
 
@@ -536,15 +536,16 @@ function run()
     @show typeof(data)
     @show typeof(data_spots)
 
-    S, dS = gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
+    S, dS, G = gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     # fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     # obj_fg = Optim.only_fg!(fg!_closure)
     # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
 
 
-    return S, dS
+    return S, dS, G
 
 end
 
-S, dS = run()
+S, dS, G = run()
+@show norm(G)
