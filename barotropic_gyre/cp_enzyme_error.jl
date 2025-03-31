@@ -1,5 +1,15 @@
 include("BarotropicGyre.jl")
 
+mutable struct Chkp
+    # mutable struct Chkp{MT}
+        S::ShallowWaters.ModelSetup
+        data::Matrix{Float32}
+        data_spots::Vector{Int}
+        J::Float64
+        j::Int
+        i::Int
+end
+
 function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
 
     data = Float32.(zeros(length(data_spots), length(S_true.parameters.data_steps)))
@@ -209,7 +219,9 @@ function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
 
 end
 
-function cpintegrate(S, scheme, data, data_spots)
+function cpintegrate(chkp, scheme)
+
+    S = chkp.S
 
     # setup
     Diag = S.Diag
@@ -255,9 +267,14 @@ function cpintegrate(S, scheme, data, data_spots)
     copyto!(Diag.SemiLagrange.sst_ref,sst)
 
     # run integration loop with checkpointing
-    S.parameters.j = 1
+    chkp.j = 1
+    t = 0
+    # @checkpoint_struct scheme S for chkp.i = 1:nt
+    for chkp.i = 1:nt
 
-    @checkpoint_struct scheme S for S.parameters.i = 1:S.grid.nt
+        S = chkp.S
+        data = chkp.data
+        data_spots = chkp.data_spots
 
         Diag = S.Diag
         Prog = S.Prog
@@ -278,8 +295,7 @@ function cpintegrate(S, scheme, data, data_spots)
     
         @unpack nt,dtint = S.grid
         @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S.grid
-        t = S.t
-        i = S.parameters.i
+        i = chkp.i
 
         # ghost point copy for boundary conditions
         ShallowWaters.ghost_points!(u,v,η,S)
@@ -338,7 +354,6 @@ function cpintegrate(S, scheme, data, data_spots)
             ShallowWaters.dambmc!(dη_comp,η0,η,dη_sum)
         end
 
-
         ShallowWaters.ghost_points!(u0,v0,η0,S)
 
         # type conversion for mixed precision
@@ -357,7 +372,7 @@ function cpintegrate(S, scheme, data, data_spots)
         # DIFFUSIVE TERMS - SEMI-IMPLICIT EULER
         # use u0 = u^(n+1) to evaluate tendencies, add to u0 = u^n + rhs
         # evaluate only every nstep_diff time steps
-        if (S.parameters.i % nstep_diff) == 0
+        if (chkp.i % nstep_diff) == 0
             ShallowWaters.bottom_drag!(u0rhs,v0rhs,η0rhs,Diag,S)
             ShallowWaters.diffusion!(u0rhs,v0rhs,Diag,S)
             ShallowWaters.add_drag_diff_tendencies!(u0,v0,Diag,S)
@@ -373,7 +388,7 @@ function cpintegrate(S, scheme, data, data_spots)
 
         # Cost function evaluation
 
-        if S.parameters.i in S.parameters.data_steps
+        if chkp.i in S.parameters.data_steps
 
             temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S.Prog.u,
             S.Prog.v,
@@ -382,9 +397,9 @@ function cpintegrate(S, scheme, data, data_spots)
 
             tempuv = [vec(temp.u);vec(temp.v)][Int.(data_spots)]
 
-            S.parameters.J += sum((tempuv - data[:, S.parameters.j]).^2)
+            chkp.J += sum((tempuv - chkp.data[:, chkp.j]).^2)
 
-            S.parameters.j += 1
+            chkp.j += 1
 
         end
 
@@ -397,7 +412,7 @@ function cpintegrate(S, scheme, data, data_spots)
 
     # return nothing
 
-    return S.parameters.J
+    return chkp.J
 
 end
 
@@ -432,7 +447,7 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     dS = Enzyme.Compiler.make_zero(S)
     snaps = Int(floor(sqrt(S.grid.nt)))
-    revolve = Revolve{ShallowWaters.ModelSetup}(S.grid.nt,
+    revolve = Revolve{Chkp}(S.grid.nt,
         snaps;
         verbose=1,
         gc=true,
@@ -441,19 +456,22 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
         write_checkpoints_period = 224
     )
 
-    ddata = Enzyme.make_zero(data)
-    ddata_spots = Enzyme.make_zero(data_spots)
+    # ddata = Enzyme.make_zero(data)
+    # ddata_spots = Enzyme.make_zero(data_spots)
+    chkp = Chkp(S, data, Int.(data_spots), 0.0, 1, 1)
+    dchkp = Enzyme.make_zero(chkp)
+    dchkp.J = 1.0
 
-    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), cpintegrate,
-    Duplicated(S, dS),
-    Const(revolve),
-    Duplicated(data, ddata),
-    Duplicated(data_spots, ddata_spots)
+    autodiff(set_runtime_activity(Enzyme.Reverse), cpintegrate,
+    Duplicated(chkp, dchkp),
+    Const(revolve)
+    # Duplicated(data, ddata),
+    # Duplicated(data_spots, ddata_spots)
     )
 
     G .= [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η)]
 
-    return S, dS
+    return S, dS, chkp
 
 end
 
@@ -466,7 +484,7 @@ function run()
 
     sigma_data = 0.01
     sigma_initcond = 0.02
-    data_steps = 220:220:6733
+    data_steps = 1:1:225
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
     data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
@@ -523,15 +541,141 @@ function run()
     dS = Enzyme.Compiler.make_zero(S_pred)
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
 
-    S, dS = gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
+    S, dS, chkp = gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     # fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     # obj_fg = Optim.only_fg!(fg!_closure)
     # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
 
-
-    return S, dS
+    return S, dS, chkp
 
 end
 
-S, dS = run()
+S, dS, chkp = run()
+
+function finitedifference(x_coord, y_coord)
+
+    Ndays = 1
+
+    xu = 30:10:100
+    yu = 40:10:100
+    Xu = xu' .* ones(length(yu))
+    Yu = ones(length(xu))' .* yu
+
+    sigma_data = 0.01
+    data_steps = 220:220:6733
+    data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
+    data_spots = [data_spotsu; data_spotsv]
+
+    P1 = ShallowWaters.Parameter(T=Float32;
+    output=false,
+    L_ratio=1,
+    g=9.81,
+    H=500,
+    wind_forcing_x="double_gyre",
+    Lx=3840e3,
+    tracer_advection=false,
+    tracer_relaxation=false,
+    bottom_drag="quadratic",
+    seasonal_wind_x=false,
+    data_steps=data_steps,
+    topography="flat",
+    bc="nonperiodic",
+    α=2,
+    nx=128,
+    Ndays=Ndays,
+    initial_cond="ncfile",
+    initpath="./data_files_forkf/128_spinup_noforcing/")
+
+    S_true = ShallowWaters.model_setup(P1)
+    data, _ = generate_data(S_true, data_spots, sigma_data)
+
+    snaps = Int(floor(sqrt(S_true.grid.nt)))
+    revolve = Revolve{ShallowWaters.ModelSetup}(S_true.grid.nt,
+        snaps;
+        verbose=1,
+        gc=true,
+        write_checkpoints=false,
+        write_checkpoints_filename = "",
+        write_checkpoints_period = 224
+    )
+
+    S_outer = ShallowWaters.model_setup(P1)
+
+    dS_outer = Enzyme.Compiler.make_zero(S_outer)
+
+    ddata = Enzyme.make_zero(data)
+    ddata_spots = Enzyme.make_zero(data_spots)
+
+    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), cpintegrate,
+        Duplicated(S_outer, dS_outer),
+        Const(revolve),
+        Duplicated(data,ddata),
+        Duplicated(data_spots, ddata_spots)
+    )
+
+    enzyme_deriv = dS_outer.Prog.u[x_coord, y_coord]
+
+    steps = [50, 40, 30, 20, 10, 1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9]
+
+    P2 = ShallowWaters.Parameter(T=Float32;output=false,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        tracer_advection=false,
+        tracer_relaxation=false,
+        bottom_drag="quadratic",
+        seasonal_wind_x=false,
+        data_steps=data_steps,
+        topography="flat",
+        bc="nonperiodic",
+        α=2,
+        nx=128,
+        Ndays=Ndays,
+        initial_cond="ncfile",
+        initpath="./data_files_forkf/128_spinup_noforcing/")
+
+    S = ShallowWaters.model_setup(P2)
+    J_outer = cpintegrate(S, revolve, data, data_spots)
+
+    diffs = []
+
+    for s in steps
+
+        P = ShallowWaters.Parameter(T=Float32;output=false,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        tracer_advection=false,
+        tracer_relaxation=false,
+        bottom_drag="quadratic",
+        seasonal_wind_x=false,
+        data_steps=data_steps,
+        topography="flat",
+        bc="nonperiodic",
+        α=2,
+        nx=128,
+        Ndays=Ndays,
+        initial_cond="ncfile",
+        initpath="./data_files_forkf/128_spinup_noforcing/")
+
+        S_inner = ShallowWaters.model_setup(P)
+
+        S_inner.Prog.u[x_coord, y_coord] += s
+
+        J_inner = cpintegrate(S_inner, revolve, data, data_spots)
+
+        push!(diffs, (J_inner - J_outer) / s)
+
+    end
+
+    return diffs, enzyme_deriv
+
+end
+
+# diffs, enzyme_deriv = finitedifference(20, 30)

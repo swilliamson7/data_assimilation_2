@@ -9,6 +9,9 @@ using ShallowWaters
 # Chosen random seed 649, will be used for all experiments 
 Random.seed!(649)
 
+Enzyme.API.looseTypeAnalysis!(true)
+Enzyme.API.strictAliasing!(true)
+
 include("helper_functions.jl")
 include("ensemble_kf.jl")
 include("exp1_initialcond_freqdata.jl")
