@@ -269,6 +269,7 @@ function cpintegrate(chkp, scheme)
     # run integration loop with checkpointing
     chkp.j = 1
     t = 0
+
     # @checkpoint_struct scheme S for chkp.i = 1:nt
     for chkp.i = 1:nt
 
@@ -434,9 +435,9 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
         bc="nonperiodic",
         α=2,
         nx=128,
-        Ndays=Ndays,
-        initial_cond="ncfile",
-        initpath="./data_files_forkf/128_spinup_noforcing/"
+        Ndays=Ndays
+        # initial_cond="ncfile",
+        # initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
     S = ShallowWaters.model_setup(P)
@@ -462,16 +463,15 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     dchkp = Enzyme.make_zero(chkp)
     dchkp.J = 1.0
 
-    autodiff(set_runtime_activity(Enzyme.Reverse), cpintegrate,
+    autodiff(Enzyme.Reverse, cpintegrate,
     Duplicated(chkp, dchkp),
     Const(revolve)
-    # Duplicated(data, ddata),
-    # Duplicated(data_spots, ddata_spots)
+
     )
 
     G .= [vec(dS.Prog.u); vec(dS.Prog.v); vec(dS.Prog.η)]
 
-    return S, dS, chkp
+    return chkp, G
 
 end
 
@@ -506,9 +506,10 @@ function run()
     bc="nonperiodic",
     α=2,
     nx=128,
-    Ndays=Ndays,
-    initial_cond="ncfile",
-    initpath="./data_files_forkf/128_spinup_noforcing/")
+    Ndays=Ndays
+    # initial_cond="ncfile",
+    # initpath="./data_files_forkf/128_spinup_noforcing/"
+    )
 
     S_true = ShallowWaters.model_setup(P_pred)
 
@@ -541,17 +542,19 @@ function run()
     dS = Enzyme.Compiler.make_zero(S_pred)
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
 
-    S, dS, chkp = gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
+    chkp, G = gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     # fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     # obj_fg = Optim.only_fg!(fg!_closure)
     # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
 
-    return S, dS, chkp
+    return chkp, G
 
 end
 
-S, dS, chkp = run()
+chkp, G = run()
+@show chkp.J
+@show norm(G)
 
 function finitedifference(x_coord, y_coord)
 
