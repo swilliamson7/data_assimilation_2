@@ -6,7 +6,7 @@ mutable struct exp2_Chkp{T1,T2}
     J::Float64                              # objective function value
     j::Int                                  # for keeping track of location in data
     i::Int                                  # timestep iterator
-    t::Int64                              # model time
+    t::Int64                                # model time
 end
 
 function exp2_generate_data(S_true, data_spots, sigma_data; compute_freq=false)
@@ -172,7 +172,7 @@ function exp2_generate_data(S_true, data_spots, sigma_data; compute_freq=false)
         ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
 
         # storing daily states for the "true" values
-        if t ∈ 1:225:S_true.grid.nt
+        if t ∈ 10:10:S_true.grid.nt
             temp1 = ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)
             push!(true_states, temp1)
@@ -184,7 +184,7 @@ function exp2_generate_data(S_true, data_spots, sigma_data; compute_freq=false)
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).u)
             tempv = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).v)
-            
+
             data[:, j] = Float32.([tempu; tempv][Int.(data_spots)] .+ sigma_data .* randn(length(data_spots)))
             j += 1
         end
@@ -707,20 +707,22 @@ function exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     )
     dchkp = Enzyme.make_zero(chkp)
 
-    autodiff(
+    chkp_prim = deepcopy(chkp)
+    J = exp2_cpintegrate(chkp_prim, revolve)
+    println("Cost without AD: $J")
+
+    @time J = autodiff(
         set_runtime_activity(Enzyme.ReverseWithPrimal),
         exp2_cpintegrate,
         Active,
         Duplicated(chkp, dchkp),
         Const(revolve)
-    )
+    )[2]
+    println("Cost with AD: $J")
 
     # Get gradient
-    u = dchkp.S.Prog.u
-    v = dchkp.S.Prog.v
-    eta = dchkp.S.Prog.η
-
-    G .= [vec(u); vec(v); vec(eta)]
+    @unpack u, v, η = dchkp.S.Prog
+    G .= [vec(u); vec(v); vec(η)]
 
     return nothing
 
@@ -762,13 +764,12 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
 
     param_guess = [vec(uic); vec(vic); vec(etaic)]
 
-    S_kf_all, Progkf_all, _, _ = run_ensemble_kf(N,
+    S_kf_all, ekf_avgu, ekf_avgv = run_ensemble_kf(N,
     data,
     param_guess,
     data_spots,
     sigma_initcond,
     sigma_data;
-    compute_freq=false,
     kwargs...
     )
 
@@ -778,25 +779,27 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
     Ndays = copy(P_pred.Ndays)
     data_steps = copy(P_pred.data_steps)
 
-    fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
-    obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=5))
+    # exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
-    # uad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["u"]
-    # vad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["v"]
-    # etaad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["eta"]
+    # fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
+    # obj_fg = Optim.only_fg!(fg!_closure)
+    # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=5))
+
+    uad = JLD2.load("exp2_minimizer_initcond_adjoint_042525.jld2")["u"]
+    vad = JLD2.load("exp2_minimizer_initcond_adjoint_042525.jld2")["v"]
+    etaad = JLD2.load("exp2_minimizer_initcond_adjoint_042525.jld2")["eta"]
 
     S_adj = ShallowWaters.model_setup(P_pred)
-    # S_adj.Prog.u = uad
-    # S_adj.Prog.v = vad
-    # S_adj.Prog.η = etaad
-    S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
-    S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
-    S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
+    S_adj.Prog.u = uad
+    S_adj.Prog.v = vad
+    S_adj.Prog.η = etaad
+    # S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
+    # S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
+    # S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
     _, states_adj, _, _ = exp2_generate_data(S_adj, data_spots, sigma_data)
 
-    return S_kf_all, Progkf_all, data, true_states, result, S_adj, states_adj
-
+    # return S_kf_all, Progkf_all, data, true_states, result, S_adj, G, states_adj
+    return S_kf_all, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
 end
 
 function run_exp2()
@@ -815,7 +818,7 @@ function run_exp2()
     data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 
-    S_kf_all, Progkf_all, data, true_states, result, S_adj, states_adj = exp2_initialcond_uvdata(N,
+    S_kf_all, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj = exp2_initialcond_uvdata(N,
         data_spots,
         sigma_initcond,
         sigma_data,
@@ -839,13 +842,13 @@ function run_exp2()
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
-    return S_kf_all, Progkf_all, data, true_states, result, S_adj, states_adj
+    return S_kf_all, Progkf_all, data, true_states, result, S_adj, G, states_adj
 
 end
 
 function exp2_plots()
 
-    # S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
+    # S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
 
     xu = 30:10:100
     yu = 40:10:100
@@ -862,32 +865,23 @@ function exp2_plots()
     Ndays = 30
 
     fig1 = Figure(size=(1000, 500));
-    ax1, hm1 = heatmap(fig1[1,1], states_true[end].u,
+    ax1, hm1 = heatmap(fig1[1,1], true_states[end].u,
         colormap=:balance,
-        colorrange=(-maximum(states_true[end].u),
-        maximum(states_true[end].u)),
+        colorrange=(-maximum(true_states[end].u),
+        maximum(true_states[end].u)),
         axis=(xlabel=L"x", ylabel=L"y", title=L"u(t = 30 \; \text{days}, x, y)"),
     );
     scatter!(ax1, vec(Xu), vec(Yu), color=:green);
     Colorbar(fig1[1,2], hm1)
-    ax2, hm2 = heatmap(fig1[1,3], states_true[end].v,
+    ax2, hm2 = heatmap(fig1[1,3], true_states[end].v,
         colormap=:balance,
-        colorrange=(-maximum(states_true[end].v),
-        maximum(states_true[end].v)),
+        colorrange=(-maximum(true_states[end].v),
+        maximum(true_states[end].v)),
         axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)"),
     );
     scatter!(ax2, vec(Xu), vec(Yu), color=:green);
     Colorbar(fig1[1,4], hm2);
 
-
-    kf_avgu = zeros(size(states_adj[1].u))
-    kf_avgv = zeros(size(states_adj[1].v))
-    for n = 1:10
-        kf_avgu = kf_avgu .+ Progkf_all[end][n].u
-        kf_avgv = kf_avgv .+ Progkf_all[end][n].v
-    end
-    kf_avgu = kf_avgu ./ 10
-    kf_avgv = kf_avgv ./ 10
 
     fig1 = Figure(size=(800,700));
     ax1, hm1 = heatmap(fig1[1,1], states_adj[end].v,
@@ -897,7 +891,7 @@ function exp2_plots()
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
     );
     Colorbar(fig1[1,2], hm1)
-    ax2, hm2 = heatmap(fig1[1,3], abs.(states_true[end].v .- states_adj[end].v),
+    ax2, hm2 = heatmap(fig1[1,3], abs.(true_states[end].v .- states_adj[end].v),
     colormap=:amp,
     colorrange=(0,
     1.5),
@@ -905,14 +899,14 @@ function exp2_plots()
     )
     Colorbar(fig1[1,4], hm2)
 
-    ax3, hm3 = heatmap(fig1[2, 1], kf_avgv,
+    ax3, hm3 = heatmap(fig1[2, 1], ekf_avgv,
     colormap=:balance,
-    colorrange=(-maximum(kf_avgv),
-    maximum(kf_avgv)),
+    colorrange=(-maximum(ekf_avgv),
+    maximum(ekf_avgv)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig1[2,2], hm3)
-    ax4, hm4 = heatmap(fig1[2,3], abs.(states_true[end].v .- kf_avgv),
+    ax4, hm4 = heatmap(fig1[2,3], abs.(true_states[end].v .- ekf_avgv),
     colormap=:amp,
     colorrange=(0,
     1.5),
@@ -923,11 +917,11 @@ function exp2_plots()
     # energy plots
 
     fig1 = Figure(size=(600, 500));
-    ax1, hm1 = heatmap(fig1[1,1], (states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2),
+    ax1, hm1 = heatmap(fig1[1,1], (true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2),
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\mathcal{E}"),
     colorrange=(0,
-    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2))
+    maximum(true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2))
     );
     Colorbar(fig1[1,2], hm1)
 
@@ -936,28 +930,28 @@ function exp2_plots()
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}(+)"),
     colorrange=(0,
-    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    maximum(true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2)),
     );
     Colorbar(fig1[1,2], hm1)
-    ax2, hm2 = heatmap(fig1[1,3], abs.((states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2) .- (states_adj[end].u[:, 1:end-1].^2 .+ states_adj[end].v[1:end-1, :].^2)),
+    ax2, hm2 = heatmap(fig1[1,3], abs.((true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2) .- (states_adj[end].u[:, 1:end-1].^2 .+ states_adj[end].v[1:end-1, :].^2)),
     colormap=:amp,
     colorrange=(0,
-    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    maximum(true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}(+)|")
     )
     Colorbar(fig1[1,4], hm2)
 
-    ax3, hm3 = heatmap(fig1[2, 1], kf_avgu[:, 1:end-1].^2 .+ kf_avgv[1:end-1, :].^2,
+    ax3, hm3 = heatmap(fig1[2, 1], ekf_avgu[:, 1:end-1].^2 .+ ekf_avgv[1:end-1, :].^2,
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}"),
     colorrange=(0,
-    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    maximum(true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2)),
     );
     Colorbar(fig1[2,2], hm3)
-    ax4, hm4 = heatmap(fig1[2,3], abs.((states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2) .- (kf_avgu[:, 1:end-1].^2 .+ kf_avgv[1:end-1, :].^2)),
+    ax4, hm4 = heatmap(fig1[2,3], abs.((true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2) .- (ekf_avgu[:, 1:end-1].^2 .+ ekf_avgv[1:end-1, :].^2)),
     colormap=:amp,
     colorrange=(0,
-    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    maximum(true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}|")
     )
     Colorbar(fig1[2,4], hm4)
@@ -967,15 +961,61 @@ function exp2_plots()
     fig2 = Figure(size=(800, 500));
 
     ax1 = Axis(fig2[1,1])
-    up_adj = periodogram(states_adj[end].u; radialavg=true)
-    vp_adj = periodogram(states_adj[end].v; radialavg=true)
 
-    lines!(ax1, up_adj.freq, up_adj.power + vp_adj.power)
+    up_adj = zeros(65, 673)
+    vp_adj = zeros(65, 673)
 
-    up_ekf = periodogram(kf_avgu; radialavg=true)
-    vp_ekf = periodogram(kf_avgv; radialavg=true)
+    up_ekf = zeros(65, 673)
+    vp_ekf = zeros(65, 673)
 
-    lines!(ax1, up_ekf.freq, up_ekf.power + vp_ekf.power)
+    up_true = zeros(65, 673)
+    vp_true = zeros(65, 673)
+    for t = 1:673
+        up_adj[:,t] = power(periodogram(states_adj[t].u; radialavg=true))
+        vp_adj[:,t] = power(periodogram(states_adj[t].v; radialavg=true))
+
+        up_ekf[:,t] = power(periodogram(ekf_avgu[t]; radialavg=true))
+        vp_ekf[:,t] = power(periodogram(ekf_avgv[t]; radialavg=true))
+
+        up_true[:,t] = power(periodogram(true_states[t].u; radialavg=true))
+        vp_true[:,t] = power(periodogram(true_states[t].v; radialavg=true))
+    end
+
+    fftu_adj = fft(up_adj,[2])
+    fftv_adj = fft(vp_adj,[2])
+    adj_wl = 1 ./ freq(periodogram(states_adj[3].u; radialavg=true));
+    adju_freq = LinRange(0, 672, 673)
+    adju_freq = adju_freq ./ 673
+    adju_freq = 1 ./ adju_freq 
+    adju_freq[1] =  1000
+    adj_wl[1] = 1000
+
+    fftu_ekf = fft(up_ekf,[2])
+    fftv_ekf = fft(vp_ekf,[2])
+    ekf_wl = 1 ./ freq(periodogram(ekf_avgu[3]; radialavg=true));
+    ekfu_freq = LinRange(0, 672, 673)
+    ekfu_freq = ekfu_freq ./ 673
+    ekfu_freq = 1 ./ ekfu_freq 
+    ekfu_freq[1] =  1000
+    ekf_wl[1] = 1000
+
+    fftu_true = fft(up_ekf,[2])
+    fftv_true = fft(vp_ekf,[2])
+    true_wl = 1 ./ freq(periodogram(true_states[3].u; radialavg=true));
+    trueu_freq = LinRange(0, 672, 673)
+    trueu_freq = trueu_freq ./ 673
+    trueu_freq = 1 ./ trueu_freq 
+    trueu_freq[1] =  1000
+    true_wl[1] = 1000
+
+    heatmap(adj_wl, adju_freq, abs.(fftu_adj) + abs.(fftv_adj); colorscale=log10, axis=(xscale=log10, yscale=log10))
+
+    # one dimensional figures
+    fig2 = Figure(size=(800, 500));
+
+    lines(fig2[1,1], adj_wl[2:end], up_adj[2:end,673] + vp_adj[2:end,673], axis=(xscale=identity,yscale=log10))
+    lines!(fig2[1,1], ekf_wl[2:end], up_ekf[2:end,673] + vp_ekf[2:end,673])
+    lines!(fig2[1,1], true_wl[2:end], up_true[2:end,673] + vp_true[2:end,673])
 
     # two dimensional freq power plot
 
@@ -986,6 +1026,16 @@ function exp2_plots()
         adjmatu[:, j] = adjfreqpoweru[j].power
         adjmatv[:, j] = adjfreqpowerv[j].power
     end
+
+    # for presentation
+
+    scale_inv = S_adj.constants.scale_inv
+    halo = S_adj.grid.halo
+    du = scale_inv*tempu[halo+1:end-halo,halo+1:end-halo]
+    fig = Figure(size=(700,600), fontsize = 26);
+    ax1, hm1 = heatmap(fig[1,1], du, colormap=:balance,colorrange=(-maximum(du), maximum(du)),axis=(xlabel=L"x", ylabel=L"y", title=L"\partial J / \partial u(t_0, x, y)"))
+    Colorbar(fig[1,2], hm1);
+    fig
 
 end
 
@@ -1095,53 +1145,117 @@ end
 ########################################################################
 # Derivative check
 
-# function finite_difference_only(data_spots,x_coord,y_coord;kwargs...)
+function exp2_finite_difference_only(data_spots,x_coord,y_coord;kwargs...)
 
-#     data, true_states = generate_data(data_spots, sigma_data; kwargs...)
-#     P1 = ShallowWaters.Parameter(T=Float32;kwargs...)
+    T = Float32
 
-#     S_outer = ShallowWaters.model_setup(P1)
+    data_steps = 220:220:6733
 
-#     dS_outer = Enzyme.Compiler.make_zero(S_outer)
+    P1 = ShallowWaters.Parameter(T=Float32;kwargs...)
 
-#     ddata = Enzyme.make_zero(data)
-#     ddata_spots = Enzyme.make_zero(data_spots)
+    S_outer = ShallowWaters.model_setup(P1)
 
-#     autodiff(Enzyme.ReverseWithPrimal, integrate,
-#         Duplicated(S_outer, dS_outer),
-#         Duplicated(data,ddata),
-#         Duplicated(data_spots, ddata_spots)
-#     )
+    data, _, _, _ = exp2_generate_data(S_outer, data_spots, 0.01)
 
-#     enzyme_deriv = dS_outer.Prog.u[x_coord, y_coord]
+    snaps = Int(floor(sqrt(S_outer.grid.nt)))
+    revolve = Revolve{exp2_Chkp{T, T}}(S_outer.grid.nt,
+        snaps;
+        verbose=1,
+        gc=true,
+        write_checkpoints=false,
+        write_checkpoints_filename = "",
+        write_checkpoints_period = 224
+    )
+    data_spots = Int.(data_spots)
 
-#     steps = [50, 40, 30, 20, 10, 1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9]
+    chkp = exp2_Chkp{T, T}(S_outer,
+        data,
+        data_spots,
+        data_steps,
+        0.0,
+        1,
+        1,
+        0.0
+    )
+    dchkp = Enzyme.make_zero(chkp)
 
-#     P2 = ShallowWaters.Parameter(T=Float32;kwargs...)
-#     S = ShallowWaters.model_setup(P2)
-#     J_outer = integrate(S, data, data_spots)
+    autodiff(
+        set_runtime_activity(Enzyme.ReverseWithPrimal),
+        exp2_cpintegrate,
+        Active,
+        Duplicated(chkp, dchkp),
+        Const(revolve)
+    )
 
-#     diffs = []
+    enzyme_deriv = dchkp.S.Prog.u[x_coord, y_coord]
 
-#     for s in steps
+    steps = [50, 40, 30, 20, 10, 1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9]
 
-#         P = ShallowWaters.Parameter(T=Float32;kwargs...)
-#         S_inner = ShallowWaters.model_setup(P)
+    P2 = ShallowWaters.Parameter(T=Float32;kwargs...)
+    S1 = ShallowWaters.model_setup(P2)
+    chkp1 = exp2_Chkp{T, T}(S1,
+    data,
+    data_spots,
+    data_steps,
+    0.0,
+    1,
+    1,
+    0.0
+    )
+    J_outer = exp2_integrate(chkp1)
 
-#         S_inner.Prog.u[x_coord, y_coord] += s
+    diffs = []
 
-#         # J_inner = checkpointed_integration(S_inner, revolve)
-#         J_inner = integrate(S_inner,data,data_spots)
+    for s in steps
 
-#         push!(diffs, (J_inner - J_outer) / s)
+        P = ShallowWaters.Parameter(T=Float32;kwargs...)
+        S_inner = ShallowWaters.model_setup(P)
 
-#     end
+        S_inner.Prog.u[x_coord, y_coord] += s
 
-#     return diffs, enzyme_deriv
+        chkp_inner = exp2_Chkp{T, T}(S_inner,
+        data,
+        data_spots,
+        data_steps,
+        0.0,
+        1,
+        1,
+        0.0
+        )
 
-# end
+        revolve = Revolve{exp2_Chkp{T, T}}(chkp_inner.S.grid.nt,
+        snaps;
+        verbose=1,
+        gc=true,
+        write_checkpoints=false,
+        write_checkpoints_filename = "",
+        write_checkpoints_period = 224
+        )
 
-# diffs, enzyme_deriv = finite_difference_only(data_spots, 72, 64;
+        J_inner = exp2_cpintegrate(chkp_inner, revolve)
+
+        push!(diffs, (J_inner - J_outer) / s)
+
+    end
+
+    return diffs, enzyme_deriv
+
+end
+
+# xu = 30:10:100
+# yu = 40:10:100
+# Xu = xu' .* ones(length(yu))
+# Yu = ones(length(xu))' .* yu
+
+# sigma_data = 0.01
+# sigma_initcond = 0.02
+# data_steps = 220:220:6733
+# data_spotsu = vec((Xu.-1) .* 127 + Yu)
+# data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
+# data_spots = [data_spotsu; data_spotsv]
+# Ndays = 1
+
+# diffs, enzyme_deriv = exp2_finite_difference_only(data_spots, 50, 50;
 #     output=false,
 #     L_ratio=1,
 #     g=9.81,

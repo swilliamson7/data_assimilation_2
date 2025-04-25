@@ -1,3 +1,14 @@
+mutable struct exp3_Chkp{T1,T2}
+    S::ShallowWaters.ModelSetup{T1,T2}      # model structure
+    data::Matrix{Float32}                   # computed data
+    data_spots::Vector{Int}                 # location of data points spatially
+    data_steps::StepRange{Int, Int}         # location of data points temporally
+    J::Float64                              # objective function value
+    j::Int                                  # for keeping track of location in data
+    i::Int                                  # timestep iterator
+    t::Int64                                # model time
+end
+
 function exp3_generate_data(S_true, data_spots, sigma_data)
 
     data = Float32.(zeros(length(data_spots), length(S_true.parameters.data_steps)))

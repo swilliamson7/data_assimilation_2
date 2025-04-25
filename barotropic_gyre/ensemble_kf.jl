@@ -20,12 +20,13 @@ This function will run the ensemble Kalman filter. It needs to be given:
     sigma_initcond - std of noise added to initial condition for each of the ensembles
     sigma_data - std of the noise added to data
 """
-function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma_data;compute_freq=false,
+function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma_data;
     kwargs...
     )
 
-    freqpoweru = []
-    freqpowerv = []
+    # save the average u and v values from the data assimilation
+    ekf_avgu = []
+    ekf_avgv = []
 
     uic = reshape(param_guess[1:17292], 131, 132)
     vic = reshape(param_guess[17293:34584], 132, 131)
@@ -73,11 +74,6 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
         P_kf.u = P_kf.u + reshape(bred_vectors[n][1:127*128], 127, 128)
         P_kf.v = P_kf.v + reshape(bred_vectors[n][(127*128+1):32512], 128, 127)
         P_kf.η = P_kf.η + reshape(bred_vectors[n][32513:end], 128, 128)
-
-        # # perturb initial conditions from the guessed value for each ensemble member
-        # P_kf.u = P_kf.u + sigma_initcond .* randn(size(P_kf.u))
-        # P_kf.v = P_kf.v + sigma_initcond .* randn(size(P_kf.v))
-        # P_kf.η = P_kf.η + sigma_initcond .* randn(size(P_kf.η))
 
         Z[:, n] = [vec(P_kf.u); vec(P_kf.v); vec(P_kf.η)]
 
@@ -144,9 +140,9 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
         end
 
-        if t ∈ 1:225:S_for_values.grid.nt
-            push!(Progkf_all, Progkf)
-        end
+        # if t ∈ 1:225:S_for_values.grid.nt
+        #     push!(Progkf_all, Progkf)
+        # end
 
         if t ∈ S_for_values.parameters.data_steps
 
@@ -182,7 +178,7 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
                 )
 
                 S_all[k].Prog.u = u
-                S_all[k].Prog.v = v 
+                S_all[k].Prog.v = v
                 S_all[k].Prog.η = eta
 
             end
@@ -191,24 +187,23 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
         end
 
-        if compute_freq
+        if t ∈ 10:10:S_for_values.grid.nt
 
-            if t ∈ 10:10:S_for_values.grid.nt
-
-                kf_avgu = zeros(127, 128)
-                kf_avgv = zeros(128,127)
-                for n = 1:10
-                    kf_avgu = kf_avgu .+ Progkf_all[t][n].u
-                    kf_avgv = kf_avgv .+ Progkf_all[t][n].v
-                end
-
+            kf_avgu = zeros(127, 128)
+            kf_avgv = zeros(128,127)
+            for n = 1:10
+                kf_avgu = kf_avgu .+ Progkf[n].u
+                kf_avgv = kf_avgv .+ Progkf[n].v
             end
+
+            push!(ekf_avgu, kf_avgu)
+            push!(ekf_avgv, kf_avgv)
 
         end
 
     end
 
-    return S_all, Progkf_all, freqpoweru, freqpowerv
+    return S_all, ekf_avgu, ekf_avgv
 
 end
 

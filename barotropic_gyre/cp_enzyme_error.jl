@@ -413,7 +413,9 @@ function cpintegrate(chkp, scheme)::Float64
         copyto!(chkp.S.Prog.v, chkp.S.Diag.RungeKutta.v0)
         copyto!(chkp.S.Prog.η, chkp.S.Diag.RungeKutta.η0)
     end
+
     return chkp.J
+
 end
 
 function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
