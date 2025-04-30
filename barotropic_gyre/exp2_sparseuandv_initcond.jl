@@ -398,6 +398,7 @@ function exp2_cpintegrate(chkp, scheme)::Float64
             chkp.S.Prog.sst,
             chkp.S
         )...)
+
         tempuv = [vec(temp.u); vec(temp.v)][chkp.data_spots]
 
         chkp.J += sum((tempuv - chkp.data[:, chkp.j]).^2)
@@ -745,6 +746,10 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
 
     S_pred = ShallowWaters.model_setup(P_pred)
 
+    for t = 1:224*3
+        _ = one_step_function(S_pred)
+    end
+
     Prog_pred = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_pred.Prog.u,
         S_pred.Prog.v,
         S_pred.Prog.η,
@@ -753,10 +758,49 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
     )
 
     # perturb initial conditions from those seen by the "true" model (create incorrect initial conditions)
-    Prog_pred.u = Prog_pred.u + sigma_initcond .* randn(size(Prog_pred.u))
-    Prog_pred.v = Prog_pred.v + sigma_initcond .* randn(size(Prog_pred.v))
-    Prog_pred.η = Prog_pred.η + sigma_initcond .* randn(size(Prog_pred.η))
-    
+    # trying to do this by perturbing the high wavelengths instead of doing a smooth perturbation with one 
+    # standard deviation
+    # I'm (somewhat arbitrarily) choosing 1 ≤ n, m ≤ 20 for the wavenumbers
+    upert = zeros(size(Prog_pred.u))
+    vpert = zeros(size(Prog_pred.v))
+    etapert = zeros(size(Prog_pred.η))
+
+    for k = 1:127
+        for j = 1:128
+
+            for n = 1:20
+                for m = 1:20
+                    upert[k,j] = sigma_initcond * randn(1)[1] * cos((pi * n / 127) * k + (pi * m / 128) * j)
+                        + sigma_initcond * randn(1)[1] * sin((pi * n / 127) * k + (pi * m / 128) * j)
+                    vpert[j,k] = sigma_initcond * randn(1)[1] * cos((pi * n / 128) * j + (pi * m / 127) * k)
+                        + sigma_initcond * randn(1)[1] * sin((pi * n / 128) * j + (pi * m / 127) * k)
+                end
+            end
+
+        end
+    end
+
+    for k = 1:128
+        for j = 1:128
+
+            for n = 1:20
+                for m = 1:20
+                    etapert[k,j] = sigma_initcond * randn(1)[1] * cos((pi * n / 128) * k + (pi * m / 128) * j)
+                        + sigma_initcond * randn(1)[1] * sin((pi * n / 128) * k + (pi * m / 128) * j)
+                end
+            end
+
+        end
+    end
+
+    Prog_pred.u = Prog_pred.u + upert
+    Prog_pred.v = Prog_pred.v + vpert
+    Prog_pred.η = Prog_pred.η + etapert
+
+    # Prog_pred.u = Prog_pred.u + sigma_initcond .* randn(size(Prog_pred.u))
+    # Prog_pred.v = Prog_pred.v + sigma_initcond .* randn(size(Prog_pred.v))
+    # Prog_pred.η = Prog_pred.η + sigma_initcond .* randn(size(Prog_pred.η))
+
     uic,vic,etaic = ShallowWaters.add_halo(Prog_pred.u,Prog_pred.v,Prog_pred.η,Prog_pred.sst,S_pred)
     S_pred.Prog.u = uic
     S_pred.Prog.v = vic
@@ -781,25 +825,26 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
 
     # exp2_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
-    # fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
-    # obj_fg = Optim.only_fg!(fg!_closure)
-    # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=5))
-
-    uad = JLD2.load("exp2_minimizer_initcond_adjoint_042525.jld2")["u"]
-    vad = JLD2.load("exp2_minimizer_initcond_adjoint_042525.jld2")["v"]
-    etaad = JLD2.load("exp2_minimizer_initcond_adjoint_042525.jld2")["eta"]
-
     S_adj = ShallowWaters.model_setup(P_pred)
-    S_adj.Prog.u = uad
-    S_adj.Prog.v = vad
-    S_adj.Prog.η = etaad
-    # S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
-    # S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
-    # S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
+
+    fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
+    obj_fg = Optim.only_fg!(fg!_closure)
+    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
+    S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
+    S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
+    S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
+
+    # uad = JLD2.load("exp2_minimizer_initcond_adjoint_042525.jld2")["u"]
+    # vad = JLD2.load("exp2_minimizer_initcond_adjoint_042525.jld2")["v"]
+    # etaad = JLD2.load("exp2_minimizer_initcond_adjoint_042525.jld2")["eta"]
+    # S_adj.Prog.u = uad
+    # S_adj.Prog.v = vad
+    # S_adj.Prog.η = etaad
+
     _, states_adj, _, _ = exp2_generate_data(S_adj, data_spots, sigma_data)
 
     # return S_kf_all, Progkf_all, data, true_states, result, S_adj, G, states_adj
-    return S_kf_all, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
+    return S_kf_all, result, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
 end
 
 function run_exp2()
@@ -810,15 +855,15 @@ function run_exp2()
     Yu = ones(length(xu))' .* yu
 
     N = 10
-    sigma_data = 0.01
-    sigma_initcond = 0.02
-    data_steps = 220:220:6733
+    sigma_data = 0.01       # this and the init cond are what the result from optimization used, be careful in adjusting
+    sigma_initcond = .02      # based on new perturbations this is now happening in spectral space, thus being closer to the order 10
+    data_steps = 225:225:6733
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
     data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 
-    S_kf_all, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj = exp2_initialcond_uvdata(N,
+    S_kf_all, result, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj = exp2_initialcond_uvdata(N,
         data_spots,
         sigma_initcond,
         sigma_data,
@@ -842,7 +887,7 @@ function run_exp2()
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
-    return S_kf_all, Progkf_all, data, true_states, result, S_adj, G, states_adj
+    return S_kf_all, result, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
 
 end
 
@@ -1012,10 +1057,18 @@ function exp2_plots()
 
     # one dimensional figures
     fig2 = Figure(size=(800, 500));
+    t = 673
+    lines(fig2[1,1], adj_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint", axis=(xscale=log10,yscale=log10,xlabel="Wavelength", ylabel="KE(k)"))
+    lines!(fig2[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
+    lines!(fig2[1,1], true_wl[2:end], up_true[2:end,t] + vp_true[2:end,t], label="Truth")
+    axislegend()
 
-    lines(fig2[1,1], adj_wl[2:end], up_adj[2:end,673] + vp_adj[2:end,673], axis=(xscale=identity,yscale=log10))
-    lines!(fig2[1,1], ekf_wl[2:end], up_ekf[2:end,673] + vp_ekf[2:end,673])
-    lines!(fig2[1,1], true_wl[2:end], up_true[2:end,673] + vp_true[2:end,673])
+    fig2 = Figure(size=(800, 500));
+
+    t = 1
+    lines(fig2[1,1], adj_wl[2:end], abs.(fft(up_adj[2:end,t])) + abs.(fft(vp_adj[2:end,t])), axis=(xscale=log10,yscale=log10))
+    lines!(fig2[1,1], ekf_wl[2:end], abs.(fft(up_ekf[2:end,t])) + abs.(fft(vp_ekf[2:end,t])))
+    lines!(fig2[1,1], true_wl[2:end], abs.(fft(up_true[2:end,t])) + abs.(fft(vp_true[2:end,t])))
 
     # two dimensional freq power plot
 
@@ -1036,109 +1089,6 @@ function exp2_plots()
     ax1, hm1 = heatmap(fig[1,1], du, colormap=:balance,colorrange=(-maximum(du), maximum(du)),axis=(xlabel=L"x", ylabel=L"y", title=L"\partial J / \partial u(t_0, x, y)"))
     Colorbar(fig[1,2], hm1);
     fig
-
-end
-
-function freq_computation()
-
-    xu = 30:10:100
-    yu = 40:10:100
-    Xu = xu' .* ones(length(yu))
-    Yu = ones(length(xu))' .* yu
-
-    N = 10
-    sigma_data = 0.01
-    sigma_initcond = 0.02
-    data_steps = 220:220:6733
-    data_spotsu = vec((Xu.-1) .* 127 + Yu)
-    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
-    data_spots = [data_spotsu; data_spotsv]
-    Ndays = 30
-
-    P_pred = ShallowWaters.Parameter(T=Float32;
-        output=false,
-        L_ratio=1,
-        g=9.81,
-        H=500,
-        wind_forcing_x="double_gyre",
-        Lx=3840e3,
-        tracer_advection=false,
-        tracer_relaxation=false,
-        bottom_drag="quadratic",
-        seasonal_wind_x=false,
-        data_steps=data_steps,
-        topography="flat",
-        bc="nonperiodic",
-        α=2,
-        nx=128,
-        Ndays=Ndays,
-        initial_cond="ncfile",
-        initpath="./data_files_forkf/128_spinup_noforcing/"
-    )
-
-    S_pred = ShallowWaters.model_setup(P_pred)
-    S_true = ShallowWaters.model_setup(P_pred)
-
-    data, _, _, _ = exp2_generate_data(S_true, data_spots, sigma_data)
-
-    Prog_pred = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_pred.Prog.u,
-        S_pred.Prog.v,
-        S_pred.Prog.η,
-        S_pred.Prog.sst,
-        S_pred)...
-    )
-
-    # perturb initial conditions from those seen by the "true" model (create incorrect initial conditions)
-    Prog_pred.u = Prog_pred.u + sigma_initcond .* randn(size(Prog_pred.u))
-    Prog_pred.v = Prog_pred.v + sigma_initcond .* randn(size(Prog_pred.v))
-    Prog_pred.η = Prog_pred.η + sigma_initcond .* randn(size(Prog_pred.η))
-    
-    uic,vic,etaic = ShallowWaters.add_halo(Prog_pred.u,Prog_pred.v,Prog_pred.η,Prog_pred.sst,S_pred)
-    S_pred.Prog.u = uic
-    S_pred.Prog.v = vic
-    S_pred.Prog.η = etaic
-
-    param_guess = [vec(uic); vec(vic); vec(etaic)]
-
-    _, _, ekfpowerfrequ, efkpowerfreqv = run_ensemble_kf(N,
-    data,
-    param_guess,
-    data_spots,
-    sigma_initcond,
-    sigma_data;
-    compute_freq=true,
-    output=false,
-    L_ratio=1,
-    g=9.81,
-    H=500,
-    wind_forcing_x="double_gyre",
-    Lx=3840e3,
-    tracer_advection=false,
-    tracer_relaxation=false,
-    bottom_drag="quadratic",
-    seasonal_wind_x=false,
-    data_steps=data_steps,
-    topography="flat",
-    bc="nonperiodic",
-    α=2,
-    nx=128,
-    Ndays=Ndays,
-    initial_cond="ncfile",
-    initpath="./data_files_forkf/128_spinup_noforcing/"
-    )
-
-    uad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["u"]
-    vad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["v"]
-    etaad = JLD2.load("exp2_minimizer_initcond_adjoint.jld2")["eta"]
-
-    S_adj = ShallowWaters.model_setup(P_pred)
-    S_adj.Prog.u = uad
-    S_adj.Prog.v = vad
-    S_adj.Prog.η = etaad
-
-    _, _, adjfreqpoweru, adjfreqpowerv = exp2_generate_data(S_adj, data_spots, sigma_data; compute_freq=true)
-
-    return ekfpowerfrequ, efkpowerfreqv, adjfreqpoweru, adjfreqpowerv
 
 end
 

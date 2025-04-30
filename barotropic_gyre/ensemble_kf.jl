@@ -59,9 +59,9 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
         # P_kf = ShallowWaters.Parameter(T=Float32;kwargs...)
         S_kf = ShallowWaters.model_setup(P)
 
-        S_kf.Prog.u = uic
-        S_kf.Prog.v = vic
-        S_kf.Prog.η = etaic
+        S_kf.Prog.u = copy(uic)
+        S_kf.Prog.v = copy(vic)
+        S_kf.Prog.η = copy(etaic)
 
         P_kf = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_kf.Prog.u,
             S_kf.Prog.v,
@@ -70,18 +70,18 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
             S_kf)...
         )
 
-        # using bred vectors to perturb each initial condition in each ensemble member
+        # using bred vectors to perturb initial condition in each ensemble member
         P_kf.u = P_kf.u + reshape(bred_vectors[n][1:127*128], 127, 128)
         P_kf.v = P_kf.v + reshape(bred_vectors[n][(127*128+1):32512], 128, 127)
         P_kf.η = P_kf.η + reshape(bred_vectors[n][32513:end], 128, 128)
 
         Z[:, n] = [vec(P_kf.u); vec(P_kf.v); vec(P_kf.η)]
 
-        uic,vic,etaic = ShallowWaters.add_halo(P_kf.u,P_kf.v,P_kf.η,P_kf.sst,S_kf)
+        uic_new,vic_new,etaic_new = ShallowWaters.add_halo(P_kf.u,P_kf.v,P_kf.η,P_kf.sst,S_kf)
 
-        S_kf.Prog.u = uic
-        S_kf.Prog.v = vic
-        S_kf.Prog.η = etaic
+        S_kf.Prog.u = uic_new
+        S_kf.Prog.v = vic_new
+        S_kf.Prog.η = etaic_new
 
         Diag = S_kf.Diag
         Prog = S_kf.Prog
@@ -191,13 +191,13 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
             kf_avgu = zeros(127, 128)
             kf_avgv = zeros(128,127)
-            for n = 1:10
+            for n = 1:N
                 kf_avgu = kf_avgu .+ Progkf[n].u
                 kf_avgv = kf_avgv .+ Progkf[n].v
             end
 
-            push!(ekf_avgu, kf_avgu)
-            push!(ekf_avgv, kf_avgv)
+            push!(ekf_avgu, (kf_avgu)./N)
+            push!(ekf_avgv, (kf_avgv)./N)
 
         end
 
@@ -210,6 +210,9 @@ end
 function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma_data;
     kwargs...
     )
+
+    ekf_avgu = []
+    ekf_avgv = []
 
     uic = reshape(param_guess[1:17292], 131, 132)
     vic = reshape(param_guess[17293:34584], 132, 131)
@@ -321,10 +324,6 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
 
         end
 
-        if t ∈ 1:225:S_for_values.grid.nt
-            push!(Progkf_all, Progkf)
-        end
-
         if t ∈ S_for_values.parameters.data_steps
 
             d = data[:, S_for_values.parameters.j]
@@ -368,9 +367,23 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
 
         end
 
+        if t ∈ 10:10:S_for_values.grid.nt
+
+            kf_avgu = zeros(127, 128)
+            kf_avgv = zeros(128,127)
+            for n = 1:N
+                kf_avgu = kf_avgu .+ Progkf[n].u
+                kf_avgv = kf_avgv .+ Progkf[n].v
+            end
+
+            push!(ekf_avgu, (kf_avgu)./N)
+            push!(ekf_avgv, (kf_avgv)./N)
+
+        end
+
     end
 
-    return S_all, Progkf_all
+    return S_all, ekf_avgu, ekf_avgv
 
 end
 
@@ -406,9 +419,40 @@ function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
         )
 
         # computing the initial, random perturbation for S2
-        uperturbation = sigma_initcond .* randn(size(Prog.u))
-        vperturbation = sigma_initcond .* randn(size(Prog.v))
-        etaperturbation = sigma_initcond .* randn(size(Prog.η))
+        uperturbation = zeros(size(Prog.u))
+        vperturbation = zeros(size(Prog.v))
+        etaperturbation = zeros(size(Prog.η))
+
+        for k = 1:127
+            for j = 1:128
+
+                for n = 1:20
+                    for m = 1:20
+                        uperturbation[k,j] = sigma_initcond * randn(1)[1] * cos((pi * n / 127) * k + (pi * m / 128) * j)
+                            + sigma_initcond * randn(1)[1] * sin((pi * n / 127) * k + (pi * m / 128) * j)
+                        vperturbation[j,k] = sigma_initcond * randn(1)[1] * cos((pi * n / 128) * j + (pi * m / 127) * k)
+                            + sigma_initcond * randn(1)[1] * sin((pi * n / 128) * j + (pi * m / 127) * k)
+                    end
+                end
+
+            end
+        end
+
+        for k = 1:128
+            for j = 1:128
+
+                for n = 1:20
+                    for m = 1:20
+                        etaperturbation[k,j] = sigma_initcond * randn(1)[1] * cos((pi * n / 128) * k + (pi * m / 128) * j)
+                            + sigma_initcond * randn(1)[1] * sin((pi * n / 128) * k + (pi * m / 128) * j)
+                    end
+                end
+
+            end
+        end
+        # uperturbation = sigma_initcond .* randn(size(Prog.u))
+        # vperturbation = sigma_initcond .* randn(size(Prog.v))
+        # etaperturbation = sigma_initcond .* randn(size(Prog.η))
 
         # computing norms of the initial perturbations
         Au = norm(uperturbation)
@@ -500,40 +544,40 @@ function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
 
             else
 
-            p1 = one_step_function(S_all[1])
-            p2 = one_step_function(S_all[2])
+                p1 = one_step_function(S_all[1])
+                p2 = one_step_function(S_all[2])
 
-            normu = norm(p2.u)
-            normv = norm(p2.v)
-            normeta = norm(p2.η)
+                normu = norm(p2.u)
+                normv = norm(p2.v)
+                normeta = norm(p2.η)
 
-            uperturbation = (p1.u - p2.u) * (Au / normu)
-            vperturbation = (p1.v - p2.v) * (Av / normv)
-            etaperturbation = (p1.η - p2.η) * (Aeta / normeta)
+                uperturbation = (p1.u - p2.u) * (Au / normu)
+                vperturbation = (p1.v - p2.v) * (Av / normv)
+                etaperturbation = (p1.η - p2.η) * (Aeta / normeta)
 
-            Prog1 = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_all[1].Prog.u,
-            S_all[1].Prog.v,
-            S_all[1].Prog.η,
-            S_all[1].Prog.sst,
-            S_all[1])...
-            )
+                Prog1 = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_all[1].Prog.u,
+                S_all[1].Prog.v,
+                S_all[1].Prog.η,
+                S_all[1].Prog.sst,
+                S_all[1])...
+                )
 
-            Prog2 = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_all[2].Prog.u,
-            S_all[2].Prog.v,
-            S_all[2].Prog.η,
-            S_all[2].Prog.sst,
-            S_all[2])...
-            )
+                Prog2 = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_all[2].Prog.u,
+                S_all[2].Prog.v,
+                S_all[2].Prog.η,
+                S_all[2].Prog.sst,
+                S_all[2])...
+                )
 
-            Prog2.u = copy(Prog1.u) + uperturbation
-            Prog2.v = copy(Prog1.v) + vperturbation
-            Prog2.η = copy(Prog1.η) + etaperturbation
+                Prog2.u = copy(Prog1.u) + uperturbation
+                Prog2.v = copy(Prog1.v) + vperturbation
+                Prog2.η = copy(Prog1.η) + etaperturbation
 
-            uic,vic,etaic = ShallowWaters.add_halo(Prog2.u,Prog2.v,Prog2.η,Prog2.sst,S_all[2])
+                uic,vic,etaic = ShallowWaters.add_halo(Prog2.u,Prog2.v,Prog2.η,Prog2.sst,S_all[2])
 
-            S_all[2].Prog.u = uic
-            S_all[2].Prog.v = vic
-            S_all[2].Prog.η = etaic
+                S_all[2].Prog.u = uic
+                S_all[2].Prog.v = vic
+                S_all[2].Prog.η = etaic
 
             end
 
