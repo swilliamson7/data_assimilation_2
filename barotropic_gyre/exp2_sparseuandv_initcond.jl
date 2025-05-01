@@ -975,6 +975,7 @@ function exp2_plots()
 
     t = 673
 
+
     fig1 = Figure(size=(800, 700));
     ax1, hm1 = heatmap(fig1[1,1], states_adj[t].u[:, 1:end-1].^2 .+ states_adj[t].v[1:end-1, :].^2,
     colormap=:amp,

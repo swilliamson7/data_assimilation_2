@@ -247,7 +247,8 @@ function cpintegrate(chkp, scheme)::Float64
 
     # run integration loop with checkpointing
     chkp.j = 1
-    @checkpoint_struct scheme chkp for chkp.i = 1:chkp.S.grid.nt
+    # @checkpoint_struct scheme chkp for chkp.i = 1:chkp.S.grid.nt
+    for chkp.i = 1:chkp.S.grid.nt
 
         t = chkp.S.t
         i = chkp.i
