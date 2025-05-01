@@ -441,8 +441,8 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
         α=2,
         nx=128,
         Ndays=Ndays,
-        initial_cond="ncfile",
-        initpath="./data_files_forkf/128_spinup_noforcing/"
+        initial_cond="rest",
+        # initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
     S = ShallowWaters.model_setup(P)
@@ -508,7 +508,7 @@ function run()
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
     data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
-    Ndays = 1
+    Ndays = 10
 
     P_pred = ShallowWaters.Parameter(T=Float32;
     output=false,
@@ -527,8 +527,8 @@ function run()
     α=2,
     nx=128,
     Ndays=Ndays,
-    initial_cond="ncfile",
-    initpath="./data_files_forkf/128_spinup_noforcing/")
+    initial_cond="rest",
+    )
 
     S_true = ShallowWaters.model_setup(P_pred)
 
@@ -563,10 +563,6 @@ function run()
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η) + 1)
 
     chkp, dchkp, G = gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
-
-    # fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
-    # obj_fg = Optim.only_fg!(fg!_closure)
-    # result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=1))
 
     return chkp, dchkp, G
 
