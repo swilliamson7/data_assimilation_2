@@ -248,7 +248,6 @@ function cpintegrate(chkp, scheme)::Float64
     # run integration loop with checkpointing
     chkp.j = 1
     @checkpoint_struct scheme chkp for chkp.i = 1:chkp.S.grid.nt
-    # for chkp.i = 1:chkp.S.grid.nt
 
         t = chkp.S.t
         i = chkp.i
@@ -373,45 +372,46 @@ function cpintegrate(chkp, scheme)::Float64
         end
 
         if (chkp.S.parameters.i % chkp.S.grid.nstep_diff) == 0
-            ShallowWaters.bottom_drag!(u0rhs, v0rhs, η0rhs, chkp.S.Diag, chkp.S)
-            ShallowWaters.diffusion!(u0rhs, v0rhs, chkp.S.Diag, chkp.S)
-            ShallowWaters.add_drag_diff_tendencies!(
-                chkp.S.Diag.RungeKutta.u0,
-                chkp.S.Diag.RungeKutta.v0,
-                chkp.S.Diag,
-                chkp.S
-            )
-            ShallowWaters.ghost_points_uv!(
-                chkp.S.Diag.RungeKutta.u0,
-                chkp.S.Diag.RungeKutta.v0,
-                chkp.S
-            )
-        end
+        ShallowWaters.bottom_drag!(u0rhs, v0rhs, η0rhs, chkp.S.Diag, chkp.S)
+        ShallowWaters.diffusion!(u0rhs, v0rhs, chkp.S.Diag, chkp.S)
+        ShallowWaters.add_drag_diff_tendencies!(
+            chkp.S.Diag.RungeKutta.u0,
+            chkp.S.Diag.RungeKutta.v0,
+            chkp.S.Diag,
+            chkp.S
+        )
+        ShallowWaters.ghost_points_uv!(
+            chkp.S.Diag.RungeKutta.u0,
+            chkp.S.Diag.RungeKutta.v0,
+            chkp.S
+        )
+    end
 
-        t += chkp.S.grid.dtint
+    t += chkp.S.grid.dtint
 
-        u0rhs = convert(chkp.S.Diag.PrognosticVarsRHS.u, chkp.S.Diag.RungeKutta.u0)
-        v0rhs = convert(chkp.S.Diag.PrognosticVarsRHS.v, chkp.S.Diag.RungeKutta.v0)
-        ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
+    u0rhs = convert(chkp.S.Diag.PrognosticVarsRHS.u, chkp.S.Diag.RungeKutta.u0)
+    v0rhs = convert(chkp.S.Diag.PrognosticVarsRHS.v, chkp.S.Diag.RungeKutta.v0)
+    ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
 
-        if i in chkp.data_steps
-            temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(
-                chkp.S.Prog.u,
-                chkp.S.Prog.v,
-                chkp.S.Prog.η,
-                chkp.S.Prog.sst,
-                chkp.S
-            )...)
-            tempuv = [vec(temp.u); vec(temp.v)][chkp.data_spots]
+    if i in chkp.data_steps
+        temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(
+            chkp.S.Prog.u,
+            chkp.S.Prog.v,
+            chkp.S.Prog.η,
+            chkp.S.Prog.sst,
+            chkp.S
+        )...)
 
-            chkp.J += sum((tempuv - chkp.data[:, chkp.j]).^2)
+        tempuv = [vec(temp.u); vec(temp.v)][chkp.data_spots]
 
-            chkp.j += 1
-        end
+        chkp.J += sum((tempuv - chkp.data[:, chkp.j]).^2)
 
-        copyto!(chkp.S.Prog.u, chkp.S.Diag.RungeKutta.u0)
-        copyto!(chkp.S.Prog.v, chkp.S.Diag.RungeKutta.v0)
-        copyto!(chkp.S.Prog.η, chkp.S.Diag.RungeKutta.η0)
+        chkp.j += 1
+    end
+
+    copyto!(chkp.S.Prog.u, chkp.S.Diag.RungeKutta.u0)
+    copyto!(chkp.S.Prog.v, chkp.S.Diag.RungeKutta.v0)
+    copyto!(chkp.S.Prog.η, chkp.S.Diag.RungeKutta.η0)
     end
 
     return chkp.J
@@ -448,11 +448,11 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     S.Prog.u = reshape(param_guess[1:17292], 131, 132)
     S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
-    S.Prog.η = reshape(param_guess[34585:end], 130, 130)
+    S.Prog.η = reshape(param_guess[34585:end-1], 130, 130)
+    S.parameters.Fx0 = param_guess[end]
 
-    dS = Enzyme.Compiler.make_zero(S)
     snaps = Int(floor(sqrt(S.grid.nt)))
-    revolve = Revolve{Chkp{T, T}}(S.grid.nt,
+    revolve = Revolve{exp3_Chkp{T, T}}(S.grid.nt,
         snaps;
         verbose=1,
         gc=true,
@@ -462,7 +462,7 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     )
     data_spots = Int.(data_spots)
 
-    chkp = Chkp{T, T}(S,
+    chkp = exp3_Chkp{T, T}(S,
         data,
         data_spots,
         data_steps,
@@ -474,23 +474,21 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     dchkp = Enzyme.make_zero(chkp)
 
     chkp_prim = deepcopy(chkp)
-    J = cpintegrate(chkp_prim, revolve)
+    J = exp3_cpintegrate(chkp_prim, revolve)
     println("Cost without AD: $J")
 
     @time J = autodiff(
         set_runtime_activity(Enzyme.ReverseWithPrimal),
-        cpintegrate,
+        exp3_cpintegrate,
         Active,
         Duplicated(chkp, dchkp),
-        # Const(data),
-        # Const(data_spots),
         Const(revolve)
     )[2]
     println("Cost with AD: $J")
 
     # Get gradient
     @unpack u, v, η = dchkp.S.Prog
-    G .= [vec(u); vec(v); vec(η)]
+    G .= [vec(u); vec(v); vec(η); dchkp.S.parameters.Fx0]
 
     return chkp, dchkp, G
 
@@ -537,6 +535,7 @@ function run()
 
     S_pred = ShallowWaters.model_setup(P_pred)
 
+    S_pred.parameters.Fx0 = .0001 * S_true.parameters.Fx0
     Prog_pred = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_pred.Prog.u,
         S_pred.Prog.v,
         S_pred.Prog.η,
@@ -554,7 +553,7 @@ function run()
     S_pred.Prog.v = vic
     S_pred.Prog.η = etaic
 
-    param_guess = [vec(uic); vec(vic); vec(etaic)]
+    param_guess = [vec(uic); vec(vic); vec(etaic); S_pred.parameters.Fx0]
 
     Ndays = copy(P_pred.Ndays)
     data_steps = copy(P_pred.data_steps)
@@ -573,7 +572,7 @@ function run()
 end
 
 chkp, dchkp, G = run()
-@show norm(G)
+@show norm(G[end])
 
 function finitedifference(x_coord, y_coord)
 

@@ -419,50 +419,39 @@ function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
         )
 
         # computing the initial, random perturbation for S2
-        uperturbation = zeros(size(Prog.u))
-        vperturbation = zeros(size(Prog.v))
-        etaperturbation = zeros(size(Prog.η))
+        upert = zeros(size(Prog.u))
+        vpert = zeros(size(Prog.v))
+        etapert = zeros(size(Prog.η))
 
-        for k = 1:127
-            for j = 1:128
-
-                for n = 1:20
-                    for m = 1:20
-                        uperturbation[k,j] = sigma_initcond * randn(1)[1] * cos((pi * n / 127) * k + (pi * m / 128) * j)
-                            + sigma_initcond * randn(1)[1] * sin((pi * n / 127) * k + (pi * m / 128) * j)
-                        vperturbation[j,k] = sigma_initcond * randn(1)[1] * cos((pi * n / 128) * j + (pi * m / 127) * k)
-                            + sigma_initcond * randn(1)[1] * sin((pi * n / 128) * j + (pi * m / 127) * k)
+        for n = 1:5
+            for m = 1:5
+                urand = randn(4)
+                vrand = randn(4)
+                for k = 1:127
+                    for j = 1:128
+                        upert[k,j] = sigma_initcond * urand[1] * cos((pi * n / 127) * k)*cos(pi * m / 128 * j)
+                            + sigma_initcond * urand[2] * sin((pi * n / 127) * k)*cos(pi * m / 128 * j)
+                            + sigma_initcond * urand[3] * cos((pi * n / 127) * k)*sin(pi * m / 128 * j)
+                            + sigma_initcond * urand[4] * sin((pi * n / 127) * k)*sin(pi * m / 128 * j)
+                        vpert[j,k] = sigma_initcond * vrand[1] * cos(pi * n / 128 * j) * cos(pi * m / 127 * k)
+                            + sigma_initcond * vrand[2] * cos(pi * n / 128 * j) * sin(pi * m / 127 * k)
+                            + sigma_initcond * vrand[3] * sin(pi * n / 128 * j) * cos(pi * m / 127 * k)
+                            + sigma_initcond * vrand[4] * sin(pi * n / 128 * j) * sin(pi * m / 127 * k)
                     end
                 end
-
+    
             end
         end
-
-        for k = 1:128
-            for j = 1:128
-
-                for n = 1:20
-                    for m = 1:20
-                        etaperturbation[k,j] = sigma_initcond * randn(1)[1] * cos((pi * n / 128) * k + (pi * m / 128) * j)
-                            + sigma_initcond * randn(1)[1] * sin((pi * n / 128) * k + (pi * m / 128) * j)
-                    end
-                end
-
-            end
-        end
-        # uperturbation = sigma_initcond .* randn(size(Prog.u))
-        # vperturbation = sigma_initcond .* randn(size(Prog.v))
-        # etaperturbation = sigma_initcond .* randn(size(Prog.η))
 
         # computing norms of the initial perturbations
-        Au = norm(uperturbation)
-        Av = norm(vperturbation)
-        Aeta = norm(etaperturbation)
+        Au = norm(upert)
+        Av = norm(vpert)
+        Aeta = norm(etapert)
 
         # apply the perturbation to the initial condition
-        Prog.u = Prog.u + uperturbation
-        Prog.v = Prog.v + vperturbation
-        Prog.η = Prog.η + etaperturbation
+        Prog.u = Prog.u + upert
+        Prog.v = Prog.v + vpert
+        Prog.η = Prog.η + etapert
 
         upert,vpert,etapert = ShallowWaters.add_halo(Prog.u,Prog.v,Prog.η,Prog.sst,S2)
 

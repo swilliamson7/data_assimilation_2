@@ -691,7 +691,7 @@ function exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     @unpack u, v, η = dchkp.S.Prog
     G .= [vec(u); vec(v); vec(η); dchkp.S.parameters.Fx0]
 
-    return nothing
+    return dchkp
 
 end
 
@@ -732,32 +732,38 @@ function exp3_bottomdrag_initialcond(N, data_spots, sigma_initcond, sigma_data; 
     vpert = zeros(size(Prog_pred.v))
     etapert = zeros(size(Prog_pred.η))
 
-    for k = 1:127
-    for j = 1:128
+    for n = 1:5
+        for m = 1:5
+            urand = randn(4)
+            vrand = randn(4)
+            for k = 1:127
+                for j = 1:128
+                    upert[k,j] = sigma_initcond * urand[1] * cos((pi * n / 127) * k)*cos(pi * m / 128 * j)
+                        + sigma_initcond * urand[2] * sin((pi * n / 127) * k)*cos(pi * m / 128 * j)
+                        + sigma_initcond * urand[3] * cos((pi * n / 127) * k)*sin(pi * m / 128 * j)
+                        + sigma_initcond * urand[4] * sin((pi * n / 127) * k)*sin(pi * m / 128 * j)
+                    vpert[j,k] = sigma_initcond * vrand[1] * cos(pi * n / 128 * j) * cos(pi * m / 127 * k)
+                        + sigma_initcond * vrand[2] * cos(pi * n / 128 * j) * sin(pi * m / 127 * k)
+                        + sigma_initcond * vrand[3] * sin(pi * n / 128 * j) * cos(pi * m / 127 * k)
+                        + sigma_initcond * vrand[4] * sin(pi * n / 128 * j) * sin(pi * m / 127 * k)
+                end
+            end
 
-        for n = 1:20
-            for m = 1:20
-                upert[k,j] = sigma_initcond * randn(1)[1] * cos((pi * n / 127) * k + (pi * m / 128) * j)
-                    + sigma_initcond * randn(1)[1] * sin((pi * n / 127) * k + (pi * m / 128) * j)
-                vpert[j,k] = sigma_initcond * randn(1)[1] * cos((pi * n / 128) * j + (pi * m / 127) * k)
-                    + sigma_initcond * randn(1)[1] * sin((pi * n / 128) * j + (pi * m / 127) * k)
+        end
+    end
+
+    for n = 1:5
+        for m = 1:5
+            etarand = randn(4)
+            for k = 1:128
+                for j = 1:128
+                    etapert[k,j] = sigma_initcond * etarand[1] * cos((pi * n / 128) * k)*cos(pi * m / 128 * j)
+                        + sigma_initcond * etarand[2] * cos((pi * n / 128) * k)*sin(pi * m / 128 * j)
+                        + sigma_initcond * etarand[3] * sin((pi * n / 128) * k)*cos(pi * m / 128 * j)
+                        + sigma_initcond * etarand[4] * sin((pi * n / 128) * k)*sin(pi * m / 128 * j)
+                end
             end
         end
-
-    end
-    end
-
-    for k = 1:128
-    for j = 1:128
-
-        for n = 1:20
-            for m = 1:20
-                etapert[k,j] = sigma_initcond * randn(1)[1] * cos((pi * n / 128) * k + (pi * m / 128) * j)
-                    + sigma_initcond * randn(1)[1] * sin((pi * n / 128) * k + (pi * m / 128) * j)
-            end
-        end
-
-    end
     end
 
     Prog_pred.u = Prog_pred.u + upert
@@ -782,6 +788,8 @@ function exp3_bottomdrag_initialcond(N, data_spots, sigma_initcond, sigma_data; 
 
     dS = Enzyme.Compiler.make_zero(S_pred)
     G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η) + 1)
+
+    dchkp = exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     Ndays = copy(S_pred.parameters.Ndays)
     data_steps = copy(S_pred.parameters.data_steps)
@@ -854,7 +862,7 @@ end
 
 function exp3_plots()
 
-    # S_kf_all, Progkf_all, G, dS, data, states_true, result, S_adj, states_adj
+    # S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
 
     xu = 30:10:100
     yu = 40:10:100
@@ -871,34 +879,33 @@ function exp3_plots()
     Ndays = 30
 
     fig1 = Figure(size=(1000, 500));
-    ax1, hm1 = heatmap(fig1[1,1], states_true[end].u,
+    ax1, hm1 = heatmap(fig1[1,1], true_states[end].u,
         colormap=:balance,
-        colorrange=(-maximum(states_true[end].u),
-        maximum(states_true[end].u)),
+        colorrange=(-maximum(true_states[end].u),
+        maximum(true_states[end].u)),
         axis=(xlabel=L"x", ylabel=L"y", title=L"u(t = 30 \; \text{days}, x, y)"),
     );
-    scatter!(ax1, vec(X), vec(Y), color=:green);
+    scatter!(ax1, vec(Xu), vec(Yu), color=:green);
     Colorbar(fig1[1,2], hm1)
-
-    
-    kf_avgu = zeros(size(states_adj[1].u))
-    kf_avgv = zeros(size(states_adj[1].v))
-    for n = 1:10
-        kf_avgu = kf_avgu .+ Progkf_all[end][n].u
-        kf_avgv = kf_avgv .+ Progkf_all[end][n].v
-    end
-    kf_avgu = kf_avgu ./ 10
-    kf_avgv = kf_avgv ./ 10
+    ax2, hm2 = heatmap(fig1[1,3], true_states[end].v,
+        colormap=:balance,
+        colorrange=(-maximum(true_states[end].v),
+        maximum(true_states[end].v)),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)"),
+    );
+    scatter!(ax2, vec(Xu), vec(Yu), color=:green);
+    Colorbar(fig1[1,4], hm2);
 
     fig1 = Figure(size=(800,700));
-    ax1, hm1 = heatmap(fig1[1,1], states_adj[end].v,
+    t = 673
+    ax1, hm1 = heatmap(fig1[1,1], states_adj[t].v,
     colormap=:balance,
-    colorrange=(-maximum(states_adj[end].v),
-    maximum(states_adj[end].v)),
+    colorrange=(-maximum(states_adj[t].v),
+    maximum(states_adj[t].v)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
     );
     Colorbar(fig1[1,2], hm1)
-    ax2, hm2 = heatmap(fig1[1,3], abs.(states_true[end].v .- states_adj[end].v),
+    ax2, hm2 = heatmap(fig1[1,3], abs.(true_states[t].v .- states_adj[t].v),
     colormap=:amp,
     colorrange=(0,
     1.5),
@@ -906,14 +913,14 @@ function exp3_plots()
     )
     Colorbar(fig1[1,4], hm2)
 
-    ax3, hm3 = heatmap(fig1[2, 1], kf_avgv,
+    ax3, hm3 = heatmap(fig1[2, 1], ekf_avgv[t],
     colormap=:balance,
-    colorrange=(-maximum(kf_avg),
-    maximum(kf_avg)),
+    colorrange=(-maximum(ekf_avgv[t]),
+    maximum(ekf_avgv[t])),
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig1[2,2], hm3)
-    ax4, hm4 = heatmap(fig1[2,3], abs.(states_true[end].v .- kf_avgv),
+    ax4, hm4 = heatmap(fig1[2,3], abs.(true_states[t].v .- ekf_avgv[t]),
     colormap=:amp,
     colorrange=(0,
     1.5),
@@ -924,45 +931,48 @@ function exp3_plots()
     # energy plots
 
     fig1 = Figure(size=(600, 500));
-    ax1, hm1 = heatmap(fig1[1,1], (states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2),
+    ax1, hm1 = heatmap(fig1[1,1], (true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2),
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\mathcal{E}"),
     colorrange=(0,
-    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2))
+    maximum(true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2))
     );
     Colorbar(fig1[1,2], hm1)
 
+    t = 673
+
     fig1 = Figure(size=(800, 700));
-    ax1, hm1 = heatmap(fig1[1,1], states_adj[end].u[:, 1:end-1].^2 .+ states_adj[end].v[1:end-1, :].^2,
+    ax1, hm1 = heatmap(fig1[1,1], states_adj[t].u[:, 1:end-1].^2 .+ states_adj[t].v[1:end-1, :].^2,
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}(+)"),
     colorrange=(0,
-    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
     );
     Colorbar(fig1[1,2], hm1)
-    ax2, hm2 = heatmap(fig1[1,3], abs.((states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2) .- (states_adj[end].u[:, 1:end-1].^2 .+ states_adj[end].v[1:end-1, :].^2)),
+    ax2, hm2 = heatmap(fig1[1,3], abs.((true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2) .- (states_adj[t].u[:, 1:end-1].^2 .+ states_adj[t].v[1:end-1, :].^2)),
     colormap=:amp,
     colorrange=(0,
-    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}(+)|")
     )
     Colorbar(fig1[1,4], hm2)
 
-
-    ax3, hm3 = heatmap(fig1[2, 1], kf_avgu[:, 1:end-1].^2 .+ kf_avgv[1:end-1, :].^2,
+    ax3, hm3 = heatmap(fig1[2, 1], ekf_avgu[t][:, 1:end-1].^2 .+ ekf_avgv[t][1:end-1, :].^2,
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}"),
     colorrange=(0,
-    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
     );
     Colorbar(fig1[2,2], hm3)
-    ax4, hm4 = heatmap(fig1[2,3], abs.((states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2) .- (kf_avgu[:, 1:end-1].^2 .+ kf_avgv[1:end-1, :].^2)),
+    ax4, hm4 = heatmap(fig1[2,3], abs.((true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2) .- (ekf_avgu[t][:, 1:end-1].^2 .+ ekf_avgv[t][1:end-1, :].^2)),
     colormap=:amp,
     colorrange=(0,
-    maximum(states_true[end].u[:, 1:end-1].^2 .+ states_true[end].v[1:end-1, :].^2)),
+    maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}|")
     )
     Colorbar(fig1[2,4], hm4)
+
+    # frequency wavenumber plots
 
     fig2 = Figure(size=(800, 500));
 
@@ -1018,11 +1028,20 @@ function exp3_plots()
 
     # one dimensional figures
     fig2 = Figure(size=(800, 500));
-    ax = Axis(fig2)
-    t = 10
-    lines(fig2[1,1], adj_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint", axis=(xscale=log10,yscale=log10,xlabel="Wavelength", ylabel="KE(k)"))
+    t = 673
+    lines(fig2[1,1], adj_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint", axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
     lines!(fig2[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
     lines!(fig2[1,1], true_wl[2:end], up_true[2:end,t] + vp_true[2:end,t], label="Truth")
+    axislegend()
+
+    # time-averaged wavenumber spectrum
+    fig2 = Figure(size=(800, 500));
+    lines(fig2[1,1], adj_wl[2:end], vec(sum(up_adj[2:end,:] + vp_adj[2:end,:], dims=2)) ./ 64,
+        label="Adjoint",
+        axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2])
+    )
+    lines!(fig2[1,1], ekf_wl[2:end], vec(sum(up_ekf[2:end,:] + vp_ekf[2:end,:], dims=2))./ 64, label="EKF")
+    lines!(fig2[1,1], true_wl[2:end], vec(sum(up_true[2:end,:] + vp_true[2:end,:], dims=2)) ./64 , label="Truth")
     axislegend()
 
     fig2 = Figure(size=(800, 500));
@@ -1042,6 +1061,7 @@ function exp3_plots()
         adjmatv[:, j] = adjfreqpowerv[j].power
     end
 
+    # for presentation
 
 end
 
