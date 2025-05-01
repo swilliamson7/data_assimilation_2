@@ -559,7 +559,7 @@ function run()
     data_steps = copy(P_pred.data_steps)
 
     dS = Enzyme.Compiler.make_zero(S_pred)
-    G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η))
+    G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η) + 1)
 
     chkp, dchkp, G = gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
