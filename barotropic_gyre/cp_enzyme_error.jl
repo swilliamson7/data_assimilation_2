@@ -716,3 +716,5 @@ function finitedifference(x_coord, y_coord)
 end
 
 diffs, enzyme_deriv, chkp_prim, dchkp = finitedifference(20, 30)
+
+@show norm(enzyme_deriv)
