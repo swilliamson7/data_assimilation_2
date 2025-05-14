@@ -808,6 +808,9 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
     S_pred.Prog.v = vic
     S_pred.Prog.η = etaic
 
+    # integrating just the prediction model
+    _, pred_states, _, _ = exp2_generate_data(deepcopy(S_pred), data_spots, sigma_data)
+
     param_guess = [vec(uic); vec(vic); vec(etaic)]
 
     S_kf_all, ekf_avgu, ekf_avgv = run_ensemble_kf(N,
@@ -832,6 +835,7 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
     fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     obj_fg = Optim.only_fg!(fg!_closure)
     result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
+
     S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
     S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
     S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
@@ -846,7 +850,7 @@ function exp2_initialcond_uvdata(N, data_spots, sigma_initcond, sigma_data; kwar
     _, states_adj, _, _ = exp2_generate_data(S_adj, data_spots, sigma_data)
 
     # return S_kf_all, Progkf_all, data, true_states, result, S_adj, G, states_adj
-    return S_kf_all, result, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
+    return result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
 end
 
 function run_exp2()
@@ -858,14 +862,14 @@ function run_exp2()
 
     N = 10
     sigma_data = 0.01        # this and the init cond are what the result from optimization used, be careful in adjusting
-    sigma_initcond = .02
+    sigma_initcond = .01
     data_steps = 225:225:6733
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
     data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 
-    S_kf_all, result, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj = exp2_initialcond_uvdata(N,
+    result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj = exp2_initialcond_uvdata(N,
         data_spots,
         sigma_initcond,
         sigma_data,
@@ -889,7 +893,7 @@ function run_exp2()
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
-    return S_kf_all, result, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
+    return result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
 
 end
 
@@ -1021,6 +1025,10 @@ function exp2_plots()
 
     up_true = zeros(65, 673)
     vp_true = zeros(65, 673)
+
+    up_pred = zeros(65, 673)
+    vp_pred = zeros(65, 673)
+
     for t = 1:673
         up_adj[:,t] = power(periodogram(states_adj[t].u; radialavg=true))
         vp_adj[:,t] = power(periodogram(states_adj[t].v; radialavg=true))
@@ -1030,6 +1038,9 @@ function exp2_plots()
 
         up_true[:,t] = power(periodogram(true_states[t].u; radialavg=true))
         vp_true[:,t] = power(periodogram(true_states[t].v; radialavg=true))
+
+        up_pred[:,t] = power(periodogram(pred_states[t].u; radialavg=true))
+        vp_pred[:,t] = power(periodogram(pred_states[t].v; radialavg=true))
     end
 
     fftu_adj = fft(up_adj,[2])
@@ -1059,6 +1070,15 @@ function exp2_plots()
     trueu_freq[1] =  1000
     true_wl[1] = 1000
 
+    fftu_pred = fft(up_ekf,[2])
+    fftv_pred = fft(vp_ekf,[2])
+    pred_wl = 1 ./ freq(periodogram(true_states[3].u; radialavg=true));
+    predu_freq = LinRange(0, 672, 673)
+    predu_freq = trueu_freq ./ 673
+    predu_freq = 1 ./ trueu_freq 
+    predu_freq[1] =  1000
+    pred_wl[1] = 1000
+
     heatmap(adj_wl, adju_freq, abs.(fftu_adj) + abs.(fftv_adj); colorscale=log10, axis=(xscale=log10, yscale=log10))
 
     # one dimensional figures
@@ -1067,6 +1087,7 @@ function exp2_plots()
     lines(fig2[1,1], adj_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint", axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
     lines!(fig2[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
     lines!(fig2[1,1], true_wl[2:end], up_true[2:end,t] + vp_true[2:end,t], label="Truth")
+    lines!(fig2[1,1], pred_wl[2:end], up_pred[2:end,t] + vp_pred[2:end,t], linestyle=:dash, label="Predicition")
     axislegend()
 
     # time-averaged wavenumber spectrum

@@ -9,7 +9,7 @@ mutable struct Chkp{T1,T2}
     J::Float64                              # objective function value
     j::Int                                  # for keeping track of location in data
     i::Int                                  # timestep iterator
-    t::Float32                              # model time
+    t::Int                                  # model time
 end
 
 function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
@@ -222,7 +222,12 @@ function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
 end
 
 function cpintegrate(chkp, scheme)::Float64
+    # good from here down
+    forcing = chkp.S.forcing
+    Fx, _ = ShallowWaters.DoubleGyreWind(typeof(forcing).parameters[1], chkp.S.parameters, chkp.S.grid)
+    chkp.S.forcing = ShallowWaters.Forcing(Fx, forcing.Fy, forcing.H, forcing.η_ref, forcing.Fη)
 
+    # no changes below
     # calculate layer thicknesses for initial conditions
     ShallowWaters.thickness!(chkp.S.Diag.VolumeFluxes.h, chkp.S.Prog.η, chkp.S.forcing.H)
     ShallowWaters.Ix!(chkp.S.Diag.VolumeFluxes.h_u, chkp.S.Diag.VolumeFluxes.h)
@@ -247,10 +252,10 @@ function cpintegrate(chkp, scheme)::Float64
 
     # run integration loop with checkpointing
     chkp.j = 1
-    # @checkpoint_struct scheme chkp for chkp.i = 1:chkp.S.grid.nt
-    for chkp.i = 1:chkp.S.grid.nt
+    @checkpoint_struct scheme chkp for chkp.i = 1:chkp.S.grid.nt
+    # for chkp.i = 1:chkp.S.grid.nt
 
-        t = chkp.S.t
+        t = chkp.t
         i = chkp.i
 
         # ghost point copy for boundary conditions
@@ -405,7 +410,7 @@ function cpintegrate(chkp, scheme)::Float64
 
         tempuv = [vec(temp.u); vec(temp.v)][chkp.data_spots]
 
-        chkp.S.parameters.J += sum((tempuv - chkp.data[:, chkp.j]).^2)
+        chkp.J += sum((tempuv - chkp.data[:, chkp.j]).^2)
 
         chkp.j += 1
     end
@@ -416,7 +421,7 @@ function cpintegrate(chkp, scheme)::Float64
 
     end
 
-    return chkp.S.parameters.J
+    return chkp.J
 
 end
 
@@ -476,6 +481,8 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     dchkp = Enzyme.make_zero(chkp)
     dchkp.S.parameters.J = 1.0
 
+    # dFx_fx0_val = dFx_fx0(chkp)
+
     chkp_prim = deepcopy(chkp)
     J = cpintegrate(chkp_prim, revolve)
     println("Cost without AD: $J")
@@ -487,6 +494,10 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
         Duplicated(chkp, dchkp),
         Const(revolve)
     )[2]
+
+    # dchkp.chkp.S.parameters.Fx0 += sum(dFx_fx0_val .* dchkp.chkp.S.forcing.Fx)
+    # dchkp.chkp.S.forcing.Fx .= 0
+
     println("Cost with AD: $J")
 
     # Get gradient
@@ -688,6 +699,7 @@ function finitedifference(x_coord, y_coord)
         bc="nonperiodic",
         α=2,
         nx=128,
+#        Fx0 = 0.00012,
         Fx0 = 0.00012 + s,
         Ndays=Ndays,
         initial_cond="ncfile",
@@ -717,4 +729,4 @@ end
 
 diffs, enzyme_deriv, chkp_prim, dchkp = finitedifference(20, 30)
 
-@show norm(enzyme_deriv)
+@show enzyme_deriv

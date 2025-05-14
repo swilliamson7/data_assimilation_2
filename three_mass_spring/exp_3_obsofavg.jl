@@ -48,18 +48,22 @@ function exp_3_obsofavg()
     r = 0.5               # spring coefficient 
     q_true(t) = 0.1 * cos(2 * pi * t / (2.5 / r))                       # known forcing function 
     q_kf(t) = 0.5 * q_true(t)                                           # forcing seen by KF (and adjoint)
-    data_steps1 = [k for k in 2500:300:7000]
-    data_steps2 = [k for k in 7300:150:T]
-    data_steps = [data_steps1; data_steps2]     # steps where data will be assimilated
+    # data_steps1 = [k for k in 2500:300:7000]
+    # data_steps2 = [k for k in 7300:150:T]
+    # data_steps = [data_steps1; data_steps2]     # steps where data will be assimilated
+    data_steps = [k for k in 375:375:10000]         # steps where data will be assimilated
 
-    rand_forcing = 0.1 .* randn(T+1)
+    sigmaf = 0.1            # standard deviation of random forcing
+    sigmad = 0.05           # standard deviation of noise added to data
+
+    rand_forcing = sigmaf .* randn(T+1)
     u = zeros(6, T+1)
     u[1, :] .= rand_forcing
 
     params_true = mso_params(T = T,
     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     u = u,
-    n = 0.01 .* randn(6, T+1),  
+    n = sigmad .* randn(6, T+1),  
     q = q_true,
     data_steps = data_steps,
     data = zeros(1,1),
@@ -69,7 +73,7 @@ function exp_3_obsofavg()
 
     params_pred = mso_params(T = T,
     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-    q = q_kf, 
+    q = q_kf,
     data_steps = data_steps,
     data = zeros(1,1),
     states = zeros(6, T+1),
@@ -146,7 +150,7 @@ function exp_3_obsofavg()
 
     fg!_closure(F, G, u_guess) = exp1_FG(F, G, u_guess, params_adjoint)
     obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, vec(params_adjoint.u), Optim.LBFGS(), Optim.Options(show_trace=true,iterations=7))
+    result = Optim.optimize(obj_fg, vec(params_adjoint.u), Optim.LBFGS(), Optim.Options(show_trace=true,iterations=10))
 
     T = params_adjoint.T
 
@@ -158,44 +162,43 @@ function exp_3_obsofavg()
     params_adjoint.u .= reshape(result.minimizer, 6, T+1)
     integrate(params_adjoint)
 
-    # grad_descent(100, params_adjoint, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
     # creating plots for second experiment
     # plot of the position of mass one
     fig = Figure();
     ax = Axis(fig[1,1], ylabel="Position");
+    vlines!(ax, data_steps, color=:gray75, linestyle=:dot);
     lines!(ax, params_true.states[1,:], label=L"x_1(t)");
     lines!(ax, params_pred.states[1,:], label=L"\tilde{x}(t, -)");
     lines!(ax, params_kf.states[1,:], label=L"\tilde{x}_1(t)", linestyle=:dash);
     lines!(ax, params_adjoint.states[1,:], label=L"\tilde{x}_1(t, +)", linestyle=:dashdot);
-    vlines!(ax, data_steps, color=:gray75, linestyle=:dot);
 
     # plot of the velocity of mass one
     ax1 = Axis(fig[2,1], ylabel="Velocity");
+    vlines!(ax1, data_steps, color=:gray75, linestyle=:dot);
     lines!(ax1, params_true.states[4,:], label=L"x_1(t)");
     lines!(ax1, params_pred.states[4,:], label=L"\tilde{x}(t, -)");
     lines!(ax1, params_kf.states[4,:], label=L"\tilde{x}_1(t)", linestyle=:dash);
     lines!(ax1, params_adjoint.states[4,:], label=L"\tilde{x}_1(t, +)", linestyle=:dashdot);
-    vlines!(ax1, data_steps, color=:gray75, linestyle=:dot);
-    
-    # # plot of the energy 
-    # ax1 = Axis(fig[2,1], ylabel="Energy");
-    # lines!(ax1, params_true.energy[3,:], label=L"\varepsilon(t)");
-    # lines!(ax1, params_pred.energy[3,:], label = L"\tilde{\varepsilon}(t, -)");
-    # lines!(ax1, params_kf.energy[3,:], label = L"\tilde{\varepsilon}(t)",linestyle=:dash);
-    # lines!(ax1, params_adjoint.energy[3,:], label = L"\tilde{\varepsilon}(t, +)",linestyle=:dashdot);
-    # vlines!(ax1, data_steps, color=:red, linestyle=:dot);
+
+    # plot of the energy 
+    ax2 = Axis(fig[3,1], ylabel="Energy");
+    vlines!(ax2, data_steps, color=:gray75, linestyle=:dot);
+    lines!(ax2, params_true.energy[3,:], label=L"\varepsilon(t)");
+    lines!(ax2, params_pred.energy[3,:], label = L"\tilde{\varepsilon}(t, -)");
+    lines!(ax2, params_kf.energy[3,:], label = L"\tilde{\varepsilon}(t)",linestyle=:dash);
+    lines!(ax2, params_adjoint.energy[3,:], label = L"\tilde{\varepsilon}(t, +)",linestyle=:dashdot);
 
     # plot of differences in estimates vs. truth
-    ax2 = Axis(fig[3,1], ylabel="Position");
-    lines!(ax2,abs.(params_true.states[1,:] - params_kf.states[1,:]),label = L"|x_1(t) - \tilde{x}_1(t)|");
-    lines!(ax2, abs.(params_true.states[1,:] - params_adjoint.states[1,:]),label = L"|x_1(t) - \tilde{x}_1(t, +)|",linestyle=:dash);
-    vlines!(ax2, data_steps, color=:gray75, linestyle=:dot);
+    # ax2 = Axis(fig[3,1], ylabel="Position");
+    # vlines!(ax2, data_steps, color=:gray75, linestyle=:dot);
+    # lines!(ax2,abs.(params_true.states[1,:] - params_kf.states[1,:]),label = L"|x_1(t) - \tilde{x}_1(t)|");
+    # lines!(ax2, abs.(params_true.states[1,:] - params_adjoint.states[1,:]),label = L"|x_1(t) - \tilde{x}_1(t, +)|",linestyle=:dash);
 
     ax3 = Axis(fig[4,1], ylabel="Velocity", xlabel="Timestep");
+    vlines!(ax3, data_steps, color=:gray75, linestyle=:dot);
     lines!(ax3,abs.(params_true.states[4,:] - params_kf.states[4,:]),label = L"|x_4(t) - \tilde{x}_4(t)|");
     lines!(ax3, abs.(params_true.states[4,:] - params_adjoint.states[4,:]),label = L"|x_4(t) - \tilde{x}_4(t, +)|",linestyle=:dash);
-    vlines!(ax3, data_steps, color=:gray75, linestyle=:dot);
 
     fig[1,2] = Legend(fig, ax)
     fig[2,2] = Legend(fig, ax1)

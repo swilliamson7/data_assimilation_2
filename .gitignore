@@ -1,7 +1,8 @@
 
 for_debugging/
 three_mass_spring/Enzyme.jl/
-barotropic_gyre/ShallowWaters.jl/
+ShallowWaters.jl/
 *.txt
 *.nc
 *.zip
+*.jld2

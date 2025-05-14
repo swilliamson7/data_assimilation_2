@@ -93,7 +93,7 @@ function exp5_FG(F, G, k_guess, params_adjoint)
 
 end
 
-function exp_5_param(;k_guess=31.)
+function exp_5_param(;k_guess=35.)
 
     # Parameter choices
     T = 10000             # Total number of steps to integrate
@@ -110,7 +110,10 @@ function exp_5_param(;k_guess=31.)
     data_steps = data_steps1
     # data_steps = [t for t in 1:T]
 
-    rand_forcing = 0.1 .* randn(T+1)
+    sigmaf = 0.1            # standard deviation of random forcing
+    sigmad = 0.05           # standard deviation of noise added to data
+
+    rand_forcing = sigmaf .* randn(T+1)
     u = zeros(6, T+1)
     u[1, :] .= rand_forcing
 
@@ -118,7 +121,7 @@ function exp_5_param(;k_guess=31.)
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
         k = 30,
-        n = 0.01 .* randn(6, T+1),
+        n = sigmad .* randn(6, T+1),
         q = q_true,
         data_steps = data_steps,
         data = zeros(1,1),

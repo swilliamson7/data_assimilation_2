@@ -1,4 +1,4 @@
-function integrate2(mso_struct::mso_params_ops)
+function exp6_integrate(mso_struct::mso_params_ops)
 
     @unpack B, Gamma, E, R, R_inv, Kc, Q, Q_inv = mso_struct
     @unpack r = mso_struct
@@ -9,7 +9,7 @@ function integrate2(mso_struct::mso_params_ops)
 
     states[:,1] .= x
 
-    kin, ptl, total = ThreeMassSpring.compute_energy(states[:,1], Kc)
+    kin, ptl, total = compute_energy(states[:,1], Kc)
     energy[:,1] = [kin;ptl;total]
 
     Ac = zeros(6,6)
@@ -45,7 +45,7 @@ function integrate2(mso_struct::mso_params_ops)
 
         end
 
-        kin, ptl, total = ThreeMassSpring.compute_energy(x, Kc)
+        kin, ptl, total = compute_energy(x, Kc)
         energy[:,t] = [kin;ptl;total]
 
     end
@@ -54,139 +54,47 @@ function integrate2(mso_struct::mso_params_ops)
 
 end
 
-function grad_descent2(M, params::mso_params_ops)
+function exp6_cost_eval(uk_guess, params_adjoint)
 
-    T = params.T
+    T = params_adjoint.T
+    params_adjoint.k = uk_guess[end]
+    params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    params_adjoint.u .= reshape(uk_guess[1:end-1], 6, T+1)
+    params_adjoint.states .= zeros(6, T+1)
+    params_adjoint.J = 0.0
+    params_adjoint.energy .= zeros(3, T+1)
 
-    u_new = zeros(6, T+1)
-    k_new = 0.0
+    exp6_integrate(params_adjoint)
 
-    params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    params.states .= zeros(6, T+1)
-    params.energy .= zeros(3, T+1)
-    params.J = 0.0
-
-    dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
-    dparams.J = 1.0
-    dparams.k = 0.
-    dparams.r = 0.
-    dparams.dt = 0.
-    dparams.Q_inv = 0.
-
-    print("Beginning grad descent\n")
-
-    autodiff(Reverse, integrate2, Duplicated(params, dparams))
-
-    if M == 0
-        return
-    end
-
-    k_new = params.k - (1 / norm(dparams.k)) * dparams.k
-
-    for t = 1:T 
-
-        u_new[:, t] = params.u[:, t] - 1 / (norm(dparams.u[1,:])) * dparams.u[:, t]
-
-    end
-
-    j = 1
-
-    k_old = copy(params.k)
-    k_grad_old = copy(dparams.k)
-    params.k = k_new
-
-    u_old = copy(params.u)
-    u_grad_old = copy(dparams.u)
-    params.u .= u_new 
-
-    while norm(u_grad_old) > 500
-
-        params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-        params.states .= zeros(6, T+1)
-        params.k = k_new
-        params.u .= u_new
-        params.J = 0.0
-        params.energy .= zeros(3, T+1)
-
-        dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
-        dparams.J = 1.0
-        dparams.k = 0.
-        dparams.r = 0.
-        dparams.dt = 0.
-        dparams.Q_inv = 0.
-
-        autodiff(Reverse, integrate2, Duplicated(params, dparams))
-
-        print("Norm of the derivative\n") 
-        @show norm(dparams.k)
-        @show norm(dparams.u[1,:])
-
-        print("Current guess for k\n")
-        @show params.k
-
-        print("Objective value\n")
-        @show params.J
-
-        gammau = 0.0
-        gammak = 0.0
-
-        numk = 0.0
-        denk = 0.0
-        numu = 0.0
-        denu = 0.0
-
-        numk = sum(dot(params.k - k_old, dparams.k - k_grad_old))
-        denk = norm(dparams.k - k_grad_old)^2
-
-        for j = 1:T 
-
-            numu += sum(dot(params.u[:,j] - u_old[:,j], dparams.u[:,j] - u_grad_old[:,j]))
-            denu += norm(dparams.u[:,j] - u_grad_old[:,j])^2
-
-        end
-
-        gammak = (abs(numk) / denk)
-        gammau = (abs(numu) / denu)
-
-        k_new = params.k - gammak * dparams.k
-        for t = 1:T
-            u_new[:, t] = params.u[:, t] - gammau * dparams.u[:, t]
-        end
-
-        k_old = copy(params.k)
-        k_grad_old = copy(dparams.k)
-        params.k = k_new
-        dparams.k = 0.0
-
-        u_old = copy(params.u)
-        u_grad_old = copy(dparams.u)
-        params.u .= u_new
-        dparams.u = zeros(6, T+1)
-
-        j += 1
-
-        if j > M
-            break
-        end
-
-    end
-
-    return nothing
+    return params_adjoint.J
 
 end
 
-function F_param_forcing(k_guess, params)
+function exp6_gradient_eval(G, uk_guess, params_adjoint)
 
-    T = params.T
-    params.k = k_guess[1]
-    params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    params.states .= zeros(6, T+1)
-    params.J = 0.0
-    params.energy .= zeros(3, T+1)
+    T = params_adjoint.T
 
-    integrate2(params)
+    params_adjoint.k = uk_guess[end]
+    params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    params_adjoint.u = reshape(uk_guess[1:end-1], 6, T+1)
+    params_adjoint.states .= zeros(6, T+1)
+    params_adjoint.J = 0.0
+    params_adjoint.energy .= zeros(3, T+1)
 
-    return params.J
+    dparams = Enzyme.Compiler.make_zero(params_adjoint)
+    dparams.J = 1.0
+
+    autodiff(Enzyme.Reverse, exp6_integrate, Duplicated(params_adjoint, dparams))
+
+    G[1:end-1] = vec(dparams.u)
+    G[end] = dparams.k
+
+end
+
+function exp6_FG(F, G, uk_guess, params_adjoint)
+
+    G === nothing || exp6_gradient_eval(G, uk_guess, params_adjoint)
+    F === nothing || return exp6_cost_eval(uk_guess, params_adjoint)
 
 end
 
@@ -220,7 +128,7 @@ function FG_param_forcing(F, G, k_guess, params)
 
 end
 
-function exp_6_param_forcing(;optm_steps = 100, k_guess=31.)
+function exp_6_param_forcing(;optm_steps = 100, k_guess=35.)
 
     # Parameter choices
     T = 10000             # Total number of steps to integrate
@@ -232,21 +140,25 @@ function exp_6_param_forcing(;optm_steps = 100, k_guess=31.)
     # q_kf(t) = q_true(t)
     ###########################################
 
-    data_steps1 = [k for k in 3000:200:7000]         # steps where data will be assimilated
+    data_steps1 = [k for k in 375:375:10000]         # steps where data will be assimilated
     # data_steps2 = [k for k in 7200:100:9000]
     # data_steps = [data_steps1;data_steps2]
     data_steps = data_steps1
     # data_steps = [t for t in 1:T]
 
-    rand_forcing = 0.1 .* randn(T+1)
+    sigmaf = 0.1            # standard deviation of random forcing
+    sigmad = 0.05           # standard deviation of noise added to data
+
+
+    rand_forcing = sigmaf .* randn(T+1)
     u = zeros(6, T+1)
     u[1, :] .= rand_forcing
 
-    params_true = ThreeMassSpring.mso_params(T = T,
+    params_true = mso_params(T = T,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
         k = 30,
-        n = 0.01 .* randn(6, T+1),
+        n = sigmad .* randn(6, T+1),
         q = q_true,
         data_steps = data_steps,
         data = zeros(1,1),
@@ -254,7 +166,7 @@ function exp_6_param_forcing(;optm_steps = 100, k_guess=31.)
         energy = zeros(3, T+1)
     )
 
-    params_pred = ThreeMassSpring.mso_params(T = T,
+    params_pred = mso_params(T = T,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         q = q_kf,
         k = k_guess,
@@ -264,8 +176,8 @@ function exp_6_param_forcing(;optm_steps = 100, k_guess=31.)
         energy = zeros(3, T+1)
     )
 
-    ops_true = ThreeMassSpring.build_ops(params_true)
-    ops_pred = ThreeMassSpring.build_ops(params_pred)
+    ops_true = build_ops(params_true)
+    ops_pred = build_ops(params_pred)
 
     # assuming data of all positions and velocities -> E is the identity operator
     ops_true.E .= Diagonal(ones(6))
@@ -282,9 +194,9 @@ function exp_6_param_forcing(;optm_steps = 100, k_guess=31.)
     ops_pred.Gamma[1, 1] = 1.0
 
     # pure prediction model
-    _ = ThreeMassSpring.create_data(params_pred, ops_pred)
+    _ = create_data(params_pred, ops_pred)
 
-    states_noisy = ThreeMassSpring.create_data(params_true, ops_true)
+    states_noisy = create_data(params_true, ops_true)
 
     diag = 1 / ops_pred.Q[1,1]
     Q_inv = diag
@@ -335,95 +247,67 @@ function exp_6_param_forcing(;optm_steps = 100, k_guess=31.)
         Kc = ops_pred.Kc
     )
 
-    ################# Handwritten gradient descent
+    fg!_closure(F, G, uk) = exp6_FG(F, G, uk, params_adjoint)
+    obj_fg = Optim.only_fg!(fg!_closure)
+    result = Optim.optimize(obj_fg, [vec(params_adjoint.u); k_guess], Optim.LBFGS(), Optim.Options(show_trace=true, iterations=10))
 
-    grad_descent2(optm_steps, params_adjoint)
-    @show params_adjoint.k
+    T = params_adjoint.T
 
+    params_adjoint.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    params_adjoint.states .= zeros(6, T+1)
+    params_adjoint.J = 0.0
+    params_adjoint.energy .= zeros(3, T+1)
+    params_adjoint.k = result.minimizer[end]
+    params_adjoint.u = reshape(result.minimizer[1:6*(T+1)], 6, T+1)
+    
+    # build a new operator with the optimized k
+    Rc = -params_adjoint.r .* diagm(ones(3))
+    Kc = [-2*params_adjoint.k params_adjoint.k 0; params_adjoint.k -3*params_adjoint.k params_adjoint.k; 0 params_adjoint.k -2*params_adjoint.k]
+    Ac = [zeros(3,3) diagm(ones(3))
+         Kc Rc
+    ]
+    A = diagm(ones(6)) + params_adjoint.dt .* Ac
+    params_adjoint.A = A
 
-    # plot of displacement
-    fixed_pos = plot(params_true.states[2,:],
-    label = L"x_2(t)"
-    )
+    exp6_integrate(params_adjoint)
 
-    plot!(params_pred.states[2, :],
-    label = L"\tilde{x}_2(t, -)"
-    )
-    # for uncertainty ribbon 
-    # to_plot1 = []
-    # to_plot2 = []
-    # for j = 1:T+1
-    #     push!(to_plot1, sqrt(uncertainty[j][2,2]))
-    #     push!(to_plot2, sqrt(uncertainty[j][5,5]))
-    # end
-    # plot!(params_kf.states[2,:], ribbon = to_plot1, ls=:dash, label = L"\tilde{x}_2(t)")
-    plot!(params_kf.states[2,:], ls=:dash, label = L"\tilde{x}_2(t)")
+    fig = Figure();
 
-    plot!(params_adjoint.states[2,:], ls=:dashdot,
-    label = L"\tilde{x}_2(t, +)")
-    vline!(data_steps, 
-    label = "",
-    ls=:dot,
-    lc=:red,
-    lw=0.5
-    )
-    ylabel!("Position")
+    # position
+    ax1 = Axis(fig[1,1], ylabel="Position");
+    vlines!(ax1, data_steps, color=:gray75, linestyle=:dot);
+    lines!(ax1, params_true.states[1,:], label=L"x_1(t)");
+    lines!(ax1, params_pred.states[1,:], label=L"\tilde{x}_1(t, -)");
+    lines!(ax1, params_kf.states[1,:], label=L"\tilde{x}_1(t)", linestyle=:dash);
+    lines!(ax1, params_adjoint.states[1,:], label=L"\tilde{x}_1(t, +)", linestyle=:dashdot);
 
-    # plot of velocity
-    fixed_vel = plot(params_true.states[5,:],
-    label = L"x_5(t)")
-    plot!(params_pred.states[5, :],
-    label = L"\tilde{x}_5(t, -)"
-    )
-    # plot!(params_kf.states[5,:], ls=:dash, label = L"\tilde{x}_5(t)", ribbon = to_plot2)
-    plot!(params_kf.states[5,:], ls=:dash, label = L"\tilde{x}_5(t)")
-    plot!(params_adjoint.states[5,:], ls=:dashdot,
-    label = L"\tilde{x}_5(t, +)")
-    vline!(data_steps, 
-    label = "",
-    ls=:dot,
-    lc=:red,
-    lw=0.5
-    )
-    ylabel!("Velocity")
+    ax2 = Axis(fig[2,1], ylabel="Velocity");
+    vlines!(ax2, data_steps, color=:gray75, linestyle=:dot);
+    lines!(ax2, params_true.states[4,:], label=L"x_4(t)");
+    lines!(ax2, params_pred.states[4,:], label=L"\tilde{x}_4(t, -)");
+    lines!(ax2, params_kf.states[4,:], label=L"\tilde{x}_4(t)", linestyle=:dash);
+    lines!(ax2, params_adjoint.states[4,:], label=L"\tilde{x}_4(t, +)", linestyle=:dashdot);
 
-    # plot of energy
-    energy = plot(params_true.energy[3,:],
-    label=L"\varepsilon(t)")
-    plot!(params_pred.energy[3,:], label=L"\tilde{\varepsilon}(t,-)")
-    plot!(params_kf.energy[3,:], ls=:dash, label=L"\tilde{\varepsilon}(t)")
-    plot!(params_adjoint.energy[3,:], ls=:dashdot, label=L"\tilde{\varepsilon}(t,+)")
-    vline!(data_steps, 
-    label = "",
-    ls=:dot,
-    lc=:red,
-    lw=0.5
-    )
-    ylabel!("Energy")
+    # plot of the energy
+    ax3 = Axis(fig[3,1], ylabel="Energy");
+    vlines!(ax3, data_steps, color=:gray75, linestyle=:dot);
+    lines!(ax3, params_true.energy[3,:], label=L"\varepsilon(t)");
+    lines!(ax3, params_pred.energy[3,:], label = L"\tilde{\varepsilon}(t, -)");
+    lines!(ax3, params_kf.energy[3,:], label = L"\tilde{\varepsilon}(t)",linestyle=:dash);
+    lines!(ax3, params_adjoint.energy[3,:], label = L"\tilde{\varepsilon}(t, +)",linestyle=:dashdot);
 
-    # plot of differences 
-    diffs = plot(abs.(params_true.states[2,:] - params_kf.states[2,:]),
-    label = L"|x_2(t) - \tilde{x}_2(t)|"
-    )
-    plot!(abs.(params_true.states[2, :] - params_adjoint.states[2,:]),
-    label = L"|x_2(t) - \tilde{x}_2(t, +)|"
-    )
-    vline!(data_steps, 
-    label = "",
-    ls=:dot,
-    lc=:red,
-    lw=0.5
-    )
-    ylabel!("Position")
-    xlabel!("Timestep")
+    # plot of differences in estimates vs. truth
+    ax4 = Axis(fig[4,1], ylabel="Energy", xlabel="Timestep");
+    vlines!(ax4, data_steps, color=:gray75, linestyle=:dot);
+    lines!(ax4,abs.(params_true.energy[3,:] - params_kf.energy[3,:]),label = L"|\varepsilon(t) - \tilde{\varepsilon}(t)|");
+    lines!(ax4, abs.(params_true.energy[3,:] - params_adjoint.energy[3,:]),label = L"|\varepsilon(t) - \tilde{\varepsilon}(t, +)|",linestyle=:dash);
 
-    plot(fixed_pos, fixed_vel, energy, diffs,
-    layout = (4,1),
-    fmt = :png,
-    dpi = 300,
-    legend = :outerright)
+    fig[1,2] = Legend(fig, ax1)
+    fig[2,2] = Legend(fig, ax2)
+    fig[3,2] = Legend(fig, ax3)
+    fig[4,2] = Legend(fig, ax4)
 
-    # return params_true, params_pred, params_kf, params_adjoint
+    return params_true, params_pred, params_kf, params_adjoint, fig
 
 end
 
@@ -451,7 +335,7 @@ function enzyme_check_param_forcing(;k_guess=20.)
     u = zeros(6, T+1)
     u[1, :] .= rand_forcing
 
-    params_true = ThreeMassSpring.mso_params(T = T,
+    params_true = mso_params(T = T,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
         k = 30,
@@ -463,7 +347,7 @@ function enzyme_check_param_forcing(;k_guess=20.)
         energy = zeros(3, T+1)
     )
 
-    params_pred = ThreeMassSpring.mso_params(T = T,
+    params_pred = mso_params(T = T,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         q = q_kf,
         u = u,
@@ -474,8 +358,8 @@ function enzyme_check_param_forcing(;k_guess=20.)
         energy = zeros(3, T+1)
     )
 
-    ops_true = ThreeMassSpring.build_ops(params_true)
-    ops_pred = ThreeMassSpring.build_ops(params_pred)
+    ops_true = build_ops(params_true)
+    ops_pred = build_ops(params_pred)
 
     # assuming data of all positions and velocities -> E is the identity operator
     ops_true.E .= Diagonal(ones(6))
@@ -492,9 +376,9 @@ function enzyme_check_param_forcing(;k_guess=20.)
     ops_pred.Gamma[1, 1] = 1.0
 
     # pure prediction model
-    _ = ThreeMassSpring.create_data(params_pred, ops_pred)
+    _ = create_data(params_pred, ops_pred)
 
-    states_noisy = ThreeMassSpring.create_data(params_true, ops_true)
+    states_noisy = create_data(params_true, ops_true)
 
     diag = 0.0
     Q_inv = diag
@@ -504,7 +388,7 @@ function enzyme_check_param_forcing(;k_guess=20.)
     # R_inv = ops_pred.E
     ###############################
 
-    params_adjoint2 = ThreeMassSpring.mso_params_ops(T=T,
+    params_adjoint2 = mso_params_ops(T=T,
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
@@ -540,7 +424,7 @@ function enzyme_check_param_forcing(;k_guess=20.)
 
     autodiff(Reverse, integrate1, Duplicated(params_adjoint2, dparams_adjoint2))
 
-    params_adjoint = ThreeMassSpring.mso_params_ops(T=T,
+    params_adjoint = mso_params_ops(T=T,
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
@@ -564,7 +448,7 @@ function enzyme_check_param_forcing(;k_guess=20.)
         Kc = ops_pred.Kc
     )
 
-    ThreeMassSpring.integrate1(params_adjoint)
+    integrate1(params_adjoint)
 
     for_checking = 0.0
     for j in data_steps
@@ -575,7 +459,7 @@ function enzyme_check_param_forcing(;k_guess=20.)
 
     steps = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10]
     diffs = []
-    params_fc = ThreeMassSpring.mso_params_ops(T=T,
+    params_fc = mso_params_ops(T=T,
         t = 0,
         x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         u = u,
@@ -647,3 +531,140 @@ function enzyme_check_param_forcing(;k_guess=20.)
 
 
 end
+
+
+# function grad_descent2(M, params::mso_params_ops)
+
+#     T = params.T
+
+#     u_new = zeros(6, T+1)
+#     k_new = 0.0
+
+#     params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+#     params.states .= zeros(6, T+1)
+#     params.energy .= zeros(3, T+1)
+#     params.J = 0.0
+
+#     dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
+#     dparams.J = 1.0
+#     dparams.k = 0.
+#     dparams.r = 0.
+#     dparams.dt = 0.
+#     dparams.Q_inv = 0.
+
+#     print("Beginning grad descent\n")
+
+#     autodiff(Reverse, integrate2, Duplicated(params, dparams))
+
+#     if M == 0
+#         return
+#     end
+
+#     k_new = params.k - (1 / norm(dparams.k)) * dparams.k
+
+#     for t = 1:T 
+
+#         u_new[:, t] = params.u[:, t] - 1 / (norm(dparams.u[1,:])) * dparams.u[:, t]
+
+#     end
+
+#     j = 1
+
+#     k_old = copy(params.k)
+#     k_grad_old = copy(dparams.k)
+#     params.k = k_new
+
+#     u_old = copy(params.u)
+#     u_grad_old = copy(dparams.u)
+#     params.u .= u_new 
+
+#     while norm(u_grad_old) > 500
+
+#         params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+#         params.states .= zeros(6, T+1)
+#         params.k = k_new
+#         params.u .= u_new
+#         params.J = 0.0
+#         params.energy .= zeros(3, T+1)
+
+#         dparams = Enzyme.Compiler.make_zero(Core.Typeof(params), IdDict(), params)
+#         dparams.J = 1.0
+#         dparams.k = 0.
+#         dparams.r = 0.
+#         dparams.dt = 0.
+#         dparams.Q_inv = 0.
+
+#         autodiff(Reverse, integrate2, Duplicated(params, dparams))
+
+#         print("Norm of the derivative\n") 
+#         @show norm(dparams.k)
+#         @show norm(dparams.u[1,:])
+
+#         print("Current guess for k\n")
+#         @show params.k
+
+#         print("Objective value\n")
+#         @show params.J
+
+#         gammau = 0.0
+#         gammak = 0.0
+
+#         numk = 0.0
+#         denk = 0.0
+#         numu = 0.0
+#         denu = 0.0
+
+#         numk = sum(dot(params.k - k_old, dparams.k - k_grad_old))
+#         denk = norm(dparams.k - k_grad_old)^2
+
+#         for j = 1:T 
+
+#             numu += sum(dot(params.u[:,j] - u_old[:,j], dparams.u[:,j] - u_grad_old[:,j]))
+#             denu += norm(dparams.u[:,j] - u_grad_old[:,j])^2
+
+#         end
+
+#         gammak = (abs(numk) / denk)
+#         gammau = (abs(numu) / denu)
+
+#         k_new = params.k - gammak * dparams.k
+#         for t = 1:T
+#             u_new[:, t] = params.u[:, t] - gammau * dparams.u[:, t]
+#         end
+
+#         k_old = copy(params.k)
+#         k_grad_old = copy(dparams.k)
+#         params.k = k_new
+#         dparams.k = 0.0
+
+#         u_old = copy(params.u)
+#         u_grad_old = copy(dparams.u)
+#         params.u .= u_new
+#         dparams.u = zeros(6, T+1)
+
+#         j += 1
+
+#         if j > M
+#             break
+#         end
+
+#     end
+
+#     return nothing
+
+# end
+
+# function F_param_forcing(k_guess, params)
+
+#     T = params.T
+#     params.k = k_guess[1]
+#     params.x .= [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+#     params.states .= zeros(6, T+1)
+#     params.J = 0.0
+#     params.energy .= zeros(3, T+1)
+
+#     integrate2(params)
+
+#     return params.J
+
+# end

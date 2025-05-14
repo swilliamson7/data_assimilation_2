@@ -87,14 +87,18 @@ function exp_4_fixedpos(;optm_steps = 100)
     data_steps = data_steps1
     # data_steps = [t for t in 1:T]
 
-    rand_forcing = 0.1 .* randn(T+1)
+    sigmaf = 0.1            # standard deviation of random forcing
+    sigmad = 0.05           # standard deviation of noise added to data
+
+
+    rand_forcing = sigmaf .* randn(T+1)
     u = zeros(6, T+1)
     u[1, :] .= rand_forcing
 
     params_true = mso_params(T = T,
     x = [1.0, 3.0, 0.0, 0.0, 0.0, 0.0],
     u = u,
-    n = 0.01 .* randn(6, T+1),
+    n = sigmad .* randn(6, T+1),
     q = q_true,
     data_steps = data_steps,
     data = zeros(1,1),

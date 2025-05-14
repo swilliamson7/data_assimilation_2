@@ -1,4 +1,5 @@
 [deps]
+Accessors = "7d9f7c33-5ae7-4f3b-8dc6-eff91059b697"
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 Checkpointing = "eb46d486-4f9c-4c3d-b445-a617f2a2f1ca"
 DSP = "717857b8-e6f2-59f4-9121-6e50c889abd2"

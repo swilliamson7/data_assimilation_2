@@ -201,6 +201,10 @@ end
 
 function exp3_cpintegrate(chkp, scheme)::Float64
 
+    forcing = chkp.S.forcing
+    Fx, _ = ShallowWaters.DoubleGyreWind(typeof(forcing).parameters[1], chkp.S.parameters, chkp.S.grid)
+    chkp.S.forcing = ShallowWaters.Forcing(Fx, forcing.Fy, forcing.H, forcing.η_ref, forcing.Fη)
+
     # calculate layer thicknesses for initial conditions
     ShallowWaters.thickness!(chkp.S.Diag.VolumeFluxes.h, chkp.S.Prog.η, chkp.S.forcing.H)
     ShallowWaters.Ix!(chkp.S.Diag.VolumeFluxes.h_u, chkp.S.Diag.VolumeFluxes.h)
@@ -383,6 +387,8 @@ function exp3_cpintegrate(chkp, scheme)::Float64
         tempuv = [vec(temp.u); vec(temp.v)][chkp.data_spots]
 
         chkp.J += sum((tempuv - chkp.data[:, chkp.j]).^2)
+
+        chkp.J += abs(chkp.S.parameters.Fx0)^2
 
         chkp.j += 1
     end
@@ -777,6 +783,9 @@ function exp3_bottomdrag_initialcond(N, data_spots, sigma_initcond, sigma_data; 
 
     param_guess = [vec(uic); vec(vic); vec(etaic); S_pred.parameters.Fx0]
 
+    # integrating just the prediction model
+    _, pred_states, _, _ = exp2_generate_data(deepcopy(S_pred), data_spots, sigma_data)
+
     S_kf_all, ekf_avgu, ekf_avgv = exp3_run_ensemble_kf(N,
     data,
     param_guess,
@@ -812,7 +821,7 @@ function exp3_bottomdrag_initialcond(N, data_spots, sigma_initcond, sigma_data; 
     S_adj.parameters.Fx0 = result.minimizer[end]
     _, states_adj = exp3_generate_data(S_adj, data_spots, sigma_data)
 
-    return S_kf_all, result, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
+    return result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
 
 end
 
@@ -825,14 +834,14 @@ function run_exp3()
 
     N = 10
     sigma_data = 0.01
-    sigma_initcond = 0.02
+    sigma_initcond = 0.05
     data_steps = 220:220:6733
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
     data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
     Ndays = 30
 
-    S_kf_all, result, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj = exp3_bottomdrag_initialcond(N,
+    result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj = exp3_bottomdrag_initialcond(N,
         data_spots,
         sigma_initcond,
         sigma_data,
@@ -856,7 +865,7 @@ function run_exp3()
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
-    return S_kf_all, result, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
+    return result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
 
 end
 

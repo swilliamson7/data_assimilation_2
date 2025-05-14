@@ -50,14 +50,17 @@ function exp_1_fivedata()
     q_kf(t) = 0.5 * q_true(t)                                           # forcing seen by KF (and adjoint)
     data_steps = [1500 + k*1000 for k in 1:5]      # steps where data will be assimilated
 
-    rand_forcing = 0.1 .* randn(T+1)
+    sigmaf = 0.1            # standard deviation of random forcing
+    sigmad = 0.05           # standard deviation of noise added to data
+
+    rand_forcing = sigmaf .* randn(T+1)
     u = zeros(6, T+1)
     u[1, :] .= rand_forcing
 
     params_true = mso_params(T = T,
     x = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     u = u,
-    n = 0.05 .* randn(6, T+1),
+    n = sigmad .* randn(6, T+1),
     q = q_true,
     data_steps = data_steps,
     data = zeros(1,1),
@@ -138,7 +141,7 @@ function exp_1_fivedata()
 
     fg!_closure(F, G, u_guess) = exp1_FG(F, G, u_guess, params_adjoint)
     obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, vec(params_adjoint.u), Optim.LBFGS(), Optim.Options(show_trace=true,iterations=7))
+    result = Optim.optimize(obj_fg, vec(params_adjoint.u), Optim.LBFGS(), Optim.Options(show_trace=true,iterations=10))
 
     T = params_adjoint.T
 
@@ -157,25 +160,25 @@ function exp_1_fivedata()
     # plot of the position of mass one
     fig = Figure();
     ax = Axis(fig[1,1], ylabel="Position");
+    vlines!(ax, data_steps, color=:gray75, linestyle=:dot);
     lines!(ax, params_true.states[1,:], label=L"x_1(t)");
     lines!(ax, params_pred.states[1,:], label=L"\tilde{x}_1(t, -)");
     lines!(ax, params_kf.states[1,:], label=L"\tilde{x}_1(t)", linestyle=:dash);
     lines!(ax, params_adjoint.states[1,:], label=L"\tilde{x}_1(t, +)", linestyle=:dashdot);
-    vlines!(ax, data_steps, color=:gray75, linestyle=:dot);
-    
+
     # plot of the energy 
     ax1 = Axis(fig[2,1], ylabel="Energy");
+    vlines!(ax1, data_steps, color=:gray75, linestyle=:dot);
     lines!(ax1, params_true.energy[3,:], label=L"\varepsilon(t)");
     lines!(ax1, params_pred.energy[3,:], label = L"\tilde{\varepsilon}(t, -)");
     lines!(ax1, params_kf.energy[3,:], label = L"\tilde{\varepsilon}(t)",linestyle=:dash);
     lines!(ax1, params_adjoint.energy[3,:], label = L"\tilde{\varepsilon}(t, +)",linestyle=:dashdot);
-    vlines!(ax1, data_steps, color=:gray75, linestyle=:dot);
 
     # plot of differences in estimates vs. truth
     ax2 = Axis(fig[3,1], ylabel="Energy", xlabel="Timestep");
+    vlines!(ax2, data_steps, color=:gray75, linestyle=:dot);
     lines!(ax2,abs.(params_true.energy[3,:] - params_kf.energy[3,:]),label = L"|\varepsilon(t) - \tilde{\varepsilon}(t)|");
     lines!(ax2, abs.(params_true.energy[3,:] - params_adjoint.energy[3,:]),label = L"|\varepsilon(t) - \tilde{\varepsilon}(t, +)|",linestyle=:dash);
-    vlines!(ax2, data_steps, color=:gray75, linestyle=:dot);
 
     fig[1,2] = Legend(fig, ax)
     fig[2,2] = Legend(fig, ax1)
