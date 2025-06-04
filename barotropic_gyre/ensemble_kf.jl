@@ -39,6 +39,10 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
     P = ShallowWaters.Parameter(T=Float32;kwargs...)
     S_for_values = ShallowWaters.model_setup(P)
 
+    nu = S_for_values.grid.nu
+    nv = S_for_values.grid.nv
+    nT = S_for_values.grid.nT
+
     S = zeros(length(data[:,1]), N)
     U = zeros(length(data[:,1]), N)
 
@@ -56,8 +60,8 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
     for n = 1:N
 
-        # P_kf = ShallowWaters.Parameter(T=Float32;kwargs...)
-        S_kf = ShallowWaters.model_setup(P)
+        P_kf = ShallowWaters.Parameter(T=Float32;kwargs...)
+        S_kf = ShallowWaters.model_setup(P_kf)
 
         S_kf.Prog.u = copy(uic)
         S_kf.Prog.v = copy(vic)
@@ -75,7 +79,7 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
         P_kf.v = P_kf.v + reshape(bred_vectors[n][(127*128+1):32512], 128, 127)
         P_kf.η = P_kf.η + reshape(bred_vectors[n][32513:end], 128, 128)
 
-        Z[:, n] = [vec(P_kf.u); vec(P_kf.v); vec(P_kf.η)]
+        # Z[:, n] = [vec(P_kf.u); vec(P_kf.v); vec(P_kf.η)]
 
         uic_new,vic_new,etaic_new = ShallowWaters.add_halo(P_kf.u,P_kf.v,P_kf.η,P_kf.sst,S_kf)
 
@@ -110,9 +114,9 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
         ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
     
         # calculate PV terms for initial conditions
-        urhs = convert(Diag.PrognosticVarsRHS.u,u)
-        vrhs = convert(Diag.PrognosticVarsRHS.v,v)
-        ηrhs = convert(Diag.PrognosticVarsRHS.η,η)
+        urhs = S.Diag.PrognosticVarsRHS.u .= S.Prog.u
+        vrhs = S.Diag.PrognosticVarsRHS.v .= S.Prog.v
+        ηrhs = S.Diag.PrognosticVarsRHS.η .= S.Prog.η
     
         ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S_kf)
         ShallowWaters.PVadvection!(Diag,S_kf)
@@ -140,16 +144,7 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
         end
 
-        # if t ∈ 1:225:S_for_values.grid.nt
-        #     push!(Progkf_all, Progkf)
-        # end
-
         if t ∈ S_for_values.parameters.data_steps
-
-            d = data[:, S_for_values.parameters.j]
-            E = sigma_data .* randn(size(data[:,1])[1], N)
-            D = d * ones(N)' + sqrt(N - 1) * E
-            E = D * Π
 
             for k = 1:N
 
@@ -158,17 +153,25 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
             end
 
+            d = data[:, S_for_values.parameters.j]
+            E = (sigma_data .* randn(size(data[:,1])[1], N)) ./ sqrt(N-1)
+            D = d * ones(N)' + sqrt(N - 1) .* E
+            E = D * Π
+            A = Z * Π
             Y = U * Π
 
-            S .= Y
             D̃ = D - U
-            W = S' * (S*S' + E*E')^(-1)*D̃
+            temp = Y*Y' + E*E'
+            tempinv = (temp' * temp) * temp'
+            W = Y'*(tempinv)*D̃
 
-            T = (I + W./(sqrt(N-1)))
-
-            Z = Z*T
+            Z = Z + A*W ./ (sqrt(N - 1))
 
             for k = 1:N
+
+                Progkf[k].u .= reshape(Z[1:nu,k],S_for_values.grid.nux,S_for_values.grid.nuy)
+                Progkf[k].v .= reshape(Z[nu+1:nv+nu,k],S_for_values.grid.nvx,S_for_values.grid.nvy)
+                Progkf[k].η .= reshape(Z[nv+nu+1:nu+nv+nT,k],S_for_values.grid.nx,S_for_values.grid.ny)
 
                 u,v,eta = ShallowWaters.add_halo(Progkf[k].u,
                     Progkf[k].v,
@@ -189,7 +192,7 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
         if t ∈ 10:10:S_for_values.grid.nt
 
-            kf_avgu = zeros(127, 128)
+            kf_avgu = zeros(127,128)
             kf_avgv = zeros(128,127)
             for n = 1:N
                 kf_avgu = kf_avgu .+ Progkf[n].u
@@ -211,6 +214,7 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
     kwargs...
     )
 
+     # save the average u and v values from the data assimilation
     ekf_avgu = []
     ekf_avgv = []
 
@@ -225,6 +229,10 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
     P = ShallowWaters.Parameter(T=Float32;kwargs...)
     S_for_values = ShallowWaters.model_setup(P)
 
+    nu = S_for_values.grid.nu
+    nv = S_for_values.grid.nv
+    nT = S_for_values.grid.nT
+
     S = zeros(length(data[:,1]), N)
     U = zeros(length(data[:,1]), N)
 
@@ -234,18 +242,21 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
     # stored in S_all
     # We assume that Z is the total state vector in size, so 48896 is the
     # whole length of u + v + eta as a column vector
-    Z = zeros(48896, N)
+    Z = zeros(48896+1, N)
     S_all = []
     Progkf_all = []
+
+    bred_vectors = compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
+
     for n = 1:N
 
-        # P_kf = ShallowWaters.Parameter(T=Float32;kwargs...)
-        S_kf = ShallowWaters.model_setup(P)
+        P_kf = ShallowWaters.Parameter(T=Float32;kwargs...)
+        P_kf.Fx0 = .0001 * P_kf.Fx0
+        S_kf = ShallowWaters.model_setup(P_kf)
 
-        S_kf.Prog.u = uic
-        S_kf.Prog.v = vic
-        S_kf.Prog.η = etaic
-        S_kf.parameters.Fx0 = param_guess[end]
+        S_kf.Prog.u = copy(uic)
+        S_kf.Prog.v = copy(vic)
+        S_kf.Prog.η = copy(etaic)
 
         P_kf = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_kf.Prog.u,
             S_kf.Prog.v,
@@ -254,18 +265,17 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
             S_kf)...
         )
 
-        # perturb initial conditions from the guessed value for each ensemble member
-        P_kf.u = P_kf.u + sigma_initcond .* randn(size(P_kf.u))
-        P_kf.v = P_kf.v + sigma_initcond .* randn(size(P_kf.v))
-        P_kf.η = P_kf.η + sigma_initcond .* randn(size(P_kf.η))
+        # using bred vectors to perturb initial condition in each ensemble member
+        P_kf.u = P_kf.u + reshape(bred_vectors[n][1:127*128], 127, 128)
+        P_kf.v = P_kf.v + reshape(bred_vectors[n][(127*128+1):32512], 128, 127)
+        P_kf.η = P_kf.η + reshape(bred_vectors[n][32513:end], 128, 128)
 
-        Z[:, n] = [vec(P_kf.u); vec(P_kf.v); vec(P_kf.η)]
+        uic_new,vic_new,etaic_new = ShallowWaters.add_halo(P_kf.u,P_kf.v,P_kf.η,P_kf.sst,S_kf)
 
-        uic,vic,etaic = ShallowWaters.add_halo(P_kf.u,P_kf.v,P_kf.η,P_kf.sst,S_kf)
-
-        S_kf.Prog.u = uic
-        S_kf.Prog.v = vic
-        S_kf.Prog.η = etaic
+        S_kf.Prog.u = uic_new
+        S_kf.Prog.v = vic_new
+        S_kf.Prog.η = etaic_new
+        S_kf.parameters.Fx0 = S_kf.parameters.Fx0 + 0.0002 * randn(1)[1]
 
         Diag = S_kf.Diag
         Prog = S_kf.Prog
@@ -294,9 +304,9 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
         ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
     
         # calculate PV terms for initial conditions
-        urhs = convert(Diag.PrognosticVarsRHS.u,u)
-        vrhs = convert(Diag.PrognosticVarsRHS.v,v)
-        ηrhs = convert(Diag.PrognosticVarsRHS.η,η)
+        urhs = S.Diag.PrognosticVarsRHS.u .= S.Prog.u
+        vrhs = S.Diag.PrognosticVarsRHS.v .= S.Prog.v
+        ηrhs = S.Diag.PrognosticVarsRHS.η .= S.Prog.η
     
         ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S_kf)
         ShallowWaters.PVadvection!(Diag,S_kf)
@@ -326,29 +336,33 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
 
         if t ∈ S_for_values.parameters.data_steps
 
-            d = data[:, S_for_values.parameters.j]
-            E = sigma_data .* randn(size(data[:,1])[1], N)
-            D = d * ones(N)' + sqrt(N - 1) * E
-            E = D * Π
-
             for k = 1:N
 
-                Z[:, k] = [vec(Progkf[k].u); vec(Progkf[k].v); vec(Progkf[k].η)]
+                Z[1:nu+nv+nT, k] = [vec(Progkf[k].u); vec(Progkf[k].v); vec(Progkf[k].η)]
+                Z[end,k] = S_all[k].parameters.Fx0
                 U[:, k] = Z[Int.(data_spots), k]
 
             end
 
+            d = data[:, S_for_values.parameters.j]
+            E = (sigma_data .* randn(size(data[:,1])[1], N)) ./ sqrt(N-1)
+            D = d * ones(N)' + sqrt(N - 1) .* E
+            E = D * Π
+            A = Z * Π
             Y = U * Π
 
-            S .= Y
             D̃ = D - U
-            W = S' * (S*S' + E*E')^(-1)*D̃
+            temp = Y*Y' + E*E'
+            tempinv = (temp' * temp) * temp'
+            W = Y'*(tempinv)*D̃
 
-            T = (I + W./(sqrt(N-1)))
-
-            Z = Z*T
+            Z = Z + A*W ./ (sqrt(N - 1))
 
             for k = 1:N
+
+                Progkf[k].u .= reshape(Z[1:nu,k],S_for_values.grid.nux,S_for_values.grid.nuy)
+                Progkf[k].v .= reshape(Z[nu+1:nv+nu,k],S_for_values.grid.nvx,S_for_values.grid.nvy)
+                Progkf[k].η .= reshape(Z[nv+nu+1:nu+nv+nT,k],S_for_values.grid.nx,S_for_values.grid.ny)
 
                 u,v,eta = ShallowWaters.add_halo(Progkf[k].u,
                     Progkf[k].v,
@@ -358,8 +372,9 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
                 )
 
                 S_all[k].Prog.u = u
-                S_all[k].Prog.v = v 
+                S_all[k].Prog.v = v
                 S_all[k].Prog.η = eta
+                S_all[k].parameters.Fx0 = Z[end,k]
 
             end
 
@@ -369,7 +384,195 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
 
         if t ∈ 10:10:S_for_values.grid.nt
 
-            kf_avgu = zeros(127, 128)
+            kf_avgu = zeros(127,128)
+            kf_avgv = zeros(128,127)
+            for n = 1:N
+                kf_avgu = kf_avgu .+ Progkf[n].u
+                kf_avgv = kf_avgv .+ Progkf[n].v
+            end
+
+            push!(ekf_avgu, (kf_avgu)./N)
+            push!(ekf_avgv, (kf_avgv)./N)
+
+        end
+
+    end
+
+    return S_all, ekf_avgu, ekf_avgv
+
+end
+
+function exp4_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma_data, uic, vic, etaic;
+    kwargs...
+    )
+
+    # save the average u and v values from the data assimilation
+    ekf_avgu = []
+    ekf_avgv = []
+
+    Π = (I - (1 / N)*(ones(N) * ones(N)')) / sqrt(N - 1)
+    W = zeros(N,N)
+    T = zeros(N,N)
+
+    P = ShallowWaters.Parameter(T=Float32;kwargs...)
+    S_for_values = ShallowWaters.model_setup(P)
+
+    nu = S_for_values.grid.nu
+    nv = S_for_values.grid.nv
+    nT = S_for_values.grid.nT
+
+    S = zeros(length(data[:,1]), N)
+    U = zeros(length(data[:,1]), N)
+
+    # Generate the initial model realization ensemble,
+    # generated by slightly perturbing the initial condition N times.
+    # Output will be stored in the matrix Z, and all model structs will be
+    # stored in S_all
+    # We assume that Z is the total state vector in size, so 48896 is the
+    # whole length of u + v + eta as a column vector
+    Z = zeros(48896+1, N)
+    S_all = []
+    Progkf_all = []
+
+    bred_vectors = compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
+
+    for n = 1:N
+
+        P_kf = ShallowWaters.Parameter(T=Float32;kwargs...)
+        P_kf.Fx0 = .0001 * P_kf.Fx0
+        S_kf = ShallowWaters.model_setup(P_kf)
+
+        S_kf.Prog.u = copy(uic)
+        S_kf.Prog.v = copy(vic)
+        S_kf.Prog.η = copy(etaic)
+
+        P_kf = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_kf.Prog.u,
+            S_kf.Prog.v,
+            S_kf.Prog.η,
+            S_kf.Prog.sst,
+            S_kf)...
+        )
+
+        # using bred vectors to perturb initial condition in each ensemble member
+        P_kf.u = P_kf.u + reshape(bred_vectors[n][1:127*128], 127, 128)
+        P_kf.v = P_kf.v + reshape(bred_vectors[n][(127*128+1):32512], 128, 127)
+        P_kf.η = P_kf.η + reshape(bred_vectors[n][32513:end], 128, 128)
+
+        uic_new,vic_new,etaic_new = ShallowWaters.add_halo(P_kf.u,P_kf.v,P_kf.η,P_kf.sst,S_kf)
+
+        S_kf.Prog.u = uic_new
+        S_kf.Prog.v = vic_new
+        S_kf.Prog.η = etaic_new
+        S_kf.parameters.Fx0 = S_kf.parameters.Fx0 + 0.0005 * randn(1)[1]
+
+        Diag = S_kf.Diag
+        Prog = S_kf.Prog
+    
+        @unpack u,v,η,sst = Prog
+        @unpack u0,v0,η0 = Diag.RungeKutta
+        @unpack u1,v1,η1 = Diag.RungeKutta
+        @unpack du,dv,dη = Diag.Tendencies
+        @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
+        @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
+    
+        @unpack um,vm = Diag.SemiLagrange
+    
+        @unpack dynamics,RKo,RKs,tracer_advection = S_kf.parameters
+        @unpack time_scheme,compensated = S_kf.parameters
+        @unpack RKaΔt,RKbΔt = S_kf.constants
+        @unpack Δt_Δ,Δt_Δs = S_kf.constants
+    
+        @unpack nt,dtint = S_kf.grid
+        @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S_kf.grid
+    
+        # calculate layer thicknesses for initial conditions
+        ShallowWaters.thickness!(Diag.VolumeFluxes.h,η,S_kf.forcing.H)
+        ShallowWaters.Ix!(Diag.VolumeFluxes.h_u,Diag.VolumeFluxes.h)
+        ShallowWaters.Iy!(Diag.VolumeFluxes.h_v,Diag.VolumeFluxes.h)
+        ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
+    
+        # calculate PV terms for initial conditions
+        urhs = S.Diag.PrognosticVarsRHS.u .= S.Prog.u
+        vrhs = S.Diag.PrognosticVarsRHS.v .= S.Prog.v
+        ηrhs = S.Diag.PrognosticVarsRHS.η .= S.Prog.η
+    
+        ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S_kf)
+        ShallowWaters.PVadvection!(Diag,S_kf)
+    
+        # propagate initial conditions
+        copyto!(u0,u)
+        copyto!(v0,v)
+        copyto!(η0,η)
+    
+        # store initial conditions of sst for relaxation
+        copyto!(Diag.SemiLagrange.sst_ref,sst)
+
+        push!(S_all, S_kf)
+
+    end
+
+    for t = 1:S_for_values.grid.nt
+
+        Progkf = []
+
+        for n = 1:N
+
+            p = one_step_function(S_all[n])
+            push!(Progkf, p)
+
+        end
+
+        if t ∈ S_for_values.parameters.data_steps
+
+            for k = 1:N
+
+                Z[1:(nu+nv+nT), k] = [vec(Progkf[k].u); vec(Progkf[k].v); vec(Progkf[k].η)]
+                Z[end,k] = S_all[k].parameters.Fx0
+                U[:, k] = Z[Int.(data_spots), k]
+
+            end
+
+            d = data[:, S_for_values.parameters.j]
+            E = (sigma_data .* randn(size(data[:,1])[1], N)) ./ sqrt(N-1)
+            D = d * ones(N)' + sqrt(N - 1) .* E
+            E = D * Π
+            A = Z * Π
+            Y = U * Π
+
+            D̃ = D - U
+            temp = Y*Y' + E*E'
+            tempinv = (temp' * temp) * temp'
+            W = Y'*(tempinv)*D̃
+
+            Z = Z + A*W ./ (sqrt(N - 1))
+
+            for k = 1:N
+
+                Progkf[k].u .= reshape(Z[1:nu,k],S_for_values.grid.nux,S_for_values.grid.nuy)
+                Progkf[k].v .= reshape(Z[nu+1:nv+nu,k],S_for_values.grid.nvx,S_for_values.grid.nvy)
+                Progkf[k].η .= reshape(Z[nv+nu+1:nu+nv+nT,k],S_for_values.grid.nx,S_for_values.grid.ny)
+
+                u,v,eta = ShallowWaters.add_halo(Progkf[k].u,
+                    Progkf[k].v,
+                    Progkf[k].η,
+                    Progkf[k].sst,
+                    S_all[k]
+                )
+
+                S_all[k].Prog.u = u
+                S_all[k].Prog.v = v
+                S_all[k].Prog.η = eta
+                S_all[k].parameters.Fx0 = Z[end,k]
+
+            end
+
+            S_for_values.parameters.j += 1
+
+        end
+
+        if t ∈ 10:10:S_for_values.grid.nt
+
+            kf_avgu = zeros(127,128)
             kf_avgv = zeros(128,127)
             for n = 1:N
                 kf_avgu = kf_avgu .+ Progkf[n].u
@@ -392,6 +595,8 @@ This function will create N (the number of ensembles) Bred vectors, which
 will get used as the initial perturbations for the EKF
 """
 function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
+
+    sigma_bv = 0.02
 
     bred_vectors = []
 
@@ -418,30 +623,10 @@ function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
             S2)...
         )
 
-        # computing the initial, random perturbation for S2
-        upert = zeros(size(Prog.u))
-        vpert = zeros(size(Prog.v))
-        etapert = zeros(size(Prog.η))
-
-        for n = 1:5
-            for m = 1:5
-                urand = randn(4)
-                vrand = randn(4)
-                for k = 1:127
-                    for j = 1:128
-                        upert[k,j] = sigma_initcond * urand[1] * cos((pi * n / 127) * k)*cos(pi * m / 128 * j)
-                            + sigma_initcond * urand[2] * sin((pi * n / 127) * k)*cos(pi * m / 128 * j)
-                            + sigma_initcond * urand[3] * cos((pi * n / 127) * k)*sin(pi * m / 128 * j)
-                            + sigma_initcond * urand[4] * sin((pi * n / 127) * k)*sin(pi * m / 128 * j)
-                        vpert[j,k] = sigma_initcond * vrand[1] * cos(pi * n / 128 * j) * cos(pi * m / 127 * k)
-                            + sigma_initcond * vrand[2] * cos(pi * n / 128 * j) * sin(pi * m / 127 * k)
-                            + sigma_initcond * vrand[3] * sin(pi * n / 128 * j) * cos(pi * m / 127 * k)
-                            + sigma_initcond * vrand[4] * sin(pi * n / 128 * j) * sin(pi * m / 127 * k)
-                    end
-                end
-    
-            end
-        end
+        # perturb initial conditions from the guessed value for each ensemble member
+        upert = sigma_bv .* randn(size(Prog.u))
+        vpert = sigma_bv .* randn(size(Prog.v))
+        etapert = sigma_bv .* randn(size(Prog.η))
 
         # computing norms of the initial perturbations
         Au = norm(upert)
@@ -493,11 +678,11 @@ function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
             ShallowWaters.Ix!(Diag.VolumeFluxes.h_u,Diag.VolumeFluxes.h)
             ShallowWaters.Iy!(Diag.VolumeFluxes.h_v,Diag.VolumeFluxes.h)
             ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
-        
+
             # calculate PV terms for initial conditions
-            urhs = convert(Diag.PrognosticVarsRHS.u,u)
-            vrhs = convert(Diag.PrognosticVarsRHS.v,v)
-            ηrhs = convert(Diag.PrognosticVarsRHS.η,η)
+            urhs = S.Diag.PrognosticVarsRHS.u .= S.Prog.u
+            vrhs = S.Diag.PrognosticVarsRHS.v .= S.Prog.v
+            ηrhs = S.Diag.PrognosticVarsRHS.η .= S.Prog.η
         
             ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S)
             ShallowWaters.PVadvection!(Diag,S)

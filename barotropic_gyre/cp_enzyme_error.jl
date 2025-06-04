@@ -1,5 +1,9 @@
 using Checkpointing
 include("BarotropicGyre.jl")
+if !Base.isdefined(@__MODULE__, :ShallowWaters)
+    include("../ShallowWaters.jl/src/ShallowWaters.jl")
+    using .ShallowWaters
+end
 
 mutable struct Chkp{T1,T2}
     S::ShallowWaters.ModelSetup{T1,T2}      # model structure
@@ -48,9 +52,10 @@ function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
     ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
 
     # calculate PV terms for initial conditions
-    urhs = convert(Diag.PrognosticVarsRHS.u,u)
-    vrhs = convert(Diag.PrognosticVarsRHS.v,v)
-    ηrhs = convert(Diag.PrognosticVarsRHS.η,η)
+
+    urhs = Diag.PrognosticVarsRHS.u .= u
+    vrhs = Diag.PrognosticVarsRHS.v .= v
+    ηrhs = Diag.PrognosticVarsRHS.η .= η
 
     ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S_true)
     ShallowWaters.PVadvection!(Diag,S_true)
@@ -105,9 +110,9 @@ function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
             end
 
             # type conversion for mixed precision
-            u1rhs = convert(Diag.PrognosticVarsRHS.u,u1)
-            v1rhs = convert(Diag.PrognosticVarsRHS.v,v1)
-            η1rhs = convert(Diag.PrognosticVarsRHS.η,η1)
+            u1rhs = Diag.PrognosticVarsRHS.u .= u1
+            v1rhs = Diag.PrognosticVarsRHS.v .= v1
+            η1rhs = Diag.PrognosticVarsRHS.η .= η1
 
             ShallowWaters.rhs!(u1rhs,v1rhs,η1rhs,Diag,S_true,t)          # momentum only
             ShallowWaters.continuity!(u1rhs,v1rhs,η1rhs,Diag,S_true,t)   # continuity equation
@@ -147,9 +152,9 @@ function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
         ShallowWaters.ghost_points!(u0,v0,η0,S_true)
 
         # type conversion for mixed precision
-        u0rhs = convert(Diag.PrognosticVarsRHS.u,u0)
-        v0rhs = convert(Diag.PrognosticVarsRHS.v,v0)
-        η0rhs = convert(Diag.PrognosticVarsRHS.η,η0)
+        u0rhs = Diag.PrognosticVarsRHS.u .= u0
+        v0rhs = Diag.PrognosticVarsRHS.v .= v0
+        η0rhs = Diag.PrognosticVarsRHS.η .= η0
 
         # ADVECTION and CORIOLIS TERMS
         # although included in the tendency of every RK substep,
@@ -170,8 +175,8 @@ function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
         end
 
         # TRACER ADVECTION
-        u0rhs = convert(Diag.PrognosticVarsRHS.u,u0)
-        v0rhs = convert(Diag.PrognosticVarsRHS.v,v0)
+        u0rhs = Diag.PrognosticVarsRHS.u .= u0
+        v0rhs = Diag.PrognosticVarsRHS.v .= v0
         ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
 
         # storing daily states for the "true" values
@@ -222,22 +227,23 @@ function generate_data(S_true, data_spots, sigma_data; compute_freq=false)
 end
 
 function cpintegrate(chkp, scheme)::Float64
-    # good from here down
+
+        # additions to get derivatives with respect to forcing amplitude
     forcing = chkp.S.forcing
     Fx, _ = ShallowWaters.DoubleGyreWind(typeof(forcing).parameters[1], chkp.S.parameters, chkp.S.grid)
     chkp.S.forcing = ShallowWaters.Forcing(Fx, forcing.Fy, forcing.H, forcing.η_ref, forcing.Fη)
 
-    # no changes below
     # calculate layer thicknesses for initial conditions
     ShallowWaters.thickness!(chkp.S.Diag.VolumeFluxes.h, chkp.S.Prog.η, chkp.S.forcing.H)
     ShallowWaters.Ix!(chkp.S.Diag.VolumeFluxes.h_u, chkp.S.Diag.VolumeFluxes.h)
     ShallowWaters.Iy!(chkp.S.Diag.VolumeFluxes.h_v, chkp.S.Diag.VolumeFluxes.h)
     ShallowWaters.Ixy!(chkp.S.Diag.Vorticity.h_q, chkp.S.Diag.VolumeFluxes.h)
 
+
     # calculate PV terms for initial conditions
-    urhs = convert(chkp.S.Diag.PrognosticVarsRHS.u, chkp.S.Prog.u)
-    vrhs = convert(chkp.S.Diag.PrognosticVarsRHS.v, chkp.S.Prog.v)
-    ηrhs = convert(chkp.S.Diag.PrognosticVarsRHS.η, chkp.S.Prog.η)
+    urhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Prog.u
+    vrhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Prog.v
+    ηrhs = chkp.S.Diag.PrognosticVarsRHS.η .= chkp.S.Prog.η
 
     ShallowWaters.advection_coriolis!(urhs, vrhs, ηrhs, chkp.S.Diag, chkp.S)
     ShallowWaters.PVadvection!(chkp.S.Diag, chkp.S)
@@ -253,7 +259,6 @@ function cpintegrate(chkp, scheme)::Float64
     # run integration loop with checkpointing
     chkp.j = 1
     @checkpoint_struct scheme chkp for chkp.i = 1:chkp.S.grid.nt
-    # for chkp.i = 1:chkp.S.grid.nt
 
         t = chkp.t
         i = chkp.i
@@ -281,9 +286,9 @@ function cpintegrate(chkp, scheme)::Float64
             end
 
             # type conversion for mixed precision
-            u1rhs = convert(chkp.S.Diag.PrognosticVarsRHS.u, chkp.S.Diag.RungeKutta.u1)
-            v1rhs = convert(chkp.S.Diag.PrognosticVarsRHS.v, chkp.S.Diag.RungeKutta.v1)
-            η1rhs = convert(chkp.S.Diag.PrognosticVarsRHS.η, chkp.S.Diag.RungeKutta.η1)
+            u1rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u1
+            v1rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v1
+            η1rhs = chkp.S.Diag.PrognosticVarsRHS.η .= chkp.S.Diag.RungeKutta.η1
 
             ShallowWaters.rhs!(u1rhs, v1rhs, η1rhs, chkp.S.Diag, chkp.S, t)          # momentum only
             ShallowWaters.continuity!(u1rhs, v1rhs, η1rhs, chkp.S.Diag, chkp.S, t)   # continuity equation
@@ -368,16 +373,16 @@ function cpintegrate(chkp, scheme)::Float64
             chkp.S
         )
 
-        u0rhs = convert(chkp.S.Diag.PrognosticVarsRHS.u, chkp.S.Diag.RungeKutta.u0)
-        v0rhs = convert(chkp.S.Diag.PrognosticVarsRHS.v, chkp.S.Diag.RungeKutta.v0)
-        η0rhs = convert(chkp.S.Diag.PrognosticVarsRHS.η, chkp.S.Diag.RungeKutta.η0)
+        u0rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u0
+        v0rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v0
+        η0rhs = chkp.S.Diag.PrognosticVarsRHS.η .= chkp.S.Diag.RungeKutta.η0
 
         if chkp.S.parameters.dynamics == "nonlinear" && chkp.S.grid.nstep_advcor > 0 && (i % chkp.S.grid.nstep_advcor) == 0
             ShallowWaters.UVfluxes!(u0rhs, v0rhs, η0rhs, chkp.S.Diag, chkp.S)
             ShallowWaters.advection_coriolis!(u0rhs, v0rhs, η0rhs, chkp.S.Diag, chkp.S)
         end
 
-        if (chkp.S.parameters.i % chkp.S.grid.nstep_diff) == 0
+        if (chkp.i % chkp.S.grid.nstep_diff) == 0
         ShallowWaters.bottom_drag!(u0rhs, v0rhs, η0rhs, chkp.S.Diag, chkp.S)
         ShallowWaters.diffusion!(u0rhs, v0rhs, chkp.S.Diag, chkp.S)
         ShallowWaters.add_drag_diff_tendencies!(
@@ -391,13 +396,219 @@ function cpintegrate(chkp, scheme)::Float64
             chkp.S.Diag.RungeKutta.v0,
             chkp.S
         )
+        end
+
+        t += chkp.S.grid.dtint
+
+        u0rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u0
+        v0rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v0
+
+        ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
+
+    if i in chkp.data_steps
+        temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(
+            chkp.S.Prog.u,
+            chkp.S.Prog.v,
+            chkp.S.Prog.η,
+            chkp.S.Prog.sst,
+            chkp.S
+        )...)
+
+        tempuv = [vec(temp.u); vec(temp.v)][chkp.data_spots]
+
+        chkp.J += sum((tempuv - chkp.data[:, chkp.j]).^2)
+
+        chkp.j += 1
     end
 
-    t += chkp.S.grid.dtint
+    copyto!(chkp.S.Prog.u, chkp.S.Diag.RungeKutta.u0)
+    copyto!(chkp.S.Prog.v, chkp.S.Diag.RungeKutta.v0)
+    copyto!(chkp.S.Prog.η, chkp.S.Diag.RungeKutta.η0)
 
-    u0rhs = convert(chkp.S.Diag.PrognosticVarsRHS.u, chkp.S.Diag.RungeKutta.u0)
-    v0rhs = convert(chkp.S.Diag.PrognosticVarsRHS.v, chkp.S.Diag.RungeKutta.v0)
-    ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
+    end
+
+    return chkp.J
+
+end
+
+function integrate(chkp)::Float64
+
+    # additions to get derivatives with respect to forcing amplitude
+    forcing = chkp.S.forcing
+    Fx, _ = ShallowWaters.DoubleGyreWind(typeof(forcing).parameters[1], chkp.S.parameters, chkp.S.grid)
+    chkp.S.forcing = ShallowWaters.Forcing(Fx, forcing.Fy, forcing.H, forcing.η_ref, forcing.Fη)
+
+    # calculate layer thicknesses for initial conditions
+    ShallowWaters.thickness!(chkp.S.Diag.VolumeFluxes.h, chkp.S.Prog.η, chkp.S.forcing.H)
+    ShallowWaters.Ix!(chkp.S.Diag.VolumeFluxes.h_u, chkp.S.Diag.VolumeFluxes.h)
+    ShallowWaters.Iy!(chkp.S.Diag.VolumeFluxes.h_v, chkp.S.Diag.VolumeFluxes.h)
+    ShallowWaters.Ixy!(chkp.S.Diag.Vorticity.h_q, chkp.S.Diag.VolumeFluxes.h)
+
+
+    # calculate PV terms for initial conditions
+    urhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Prog.u
+    vrhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Prog.v
+    ηrhs = chkp.S.Diag.PrognosticVarsRHS.η .= chkp.S.Prog.η
+
+    ShallowWaters.advection_coriolis!(urhs, vrhs, ηrhs, chkp.S.Diag, chkp.S)
+    ShallowWaters.PVadvection!(chkp.S.Diag, chkp.S)
+
+    # propagate initial conditions
+    copyto!(chkp.S.Diag.RungeKutta.u0, chkp.S.Prog.u)
+    copyto!(chkp.S.Diag.RungeKutta.v0, chkp.S.Prog.v)
+    copyto!(chkp.S.Diag.RungeKutta.η0, chkp.S.Prog.η)
+
+    # store initial conditions of sst for relaxation
+    copyto!(chkp.S.Diag.SemiLagrange.sst_ref, chkp.S.Prog.sst)
+
+    # run integration loop with checkpointing
+    chkp.j = 1
+    for chkp.i = 1:chkp.S.grid.nt
+
+        t = chkp.t
+        i = chkp.i
+
+        # ghost point copy for boundary conditions
+        ShallowWaters.ghost_points!(chkp.S.Prog.u, chkp.S.Prog.v, chkp.S.Prog.η, chkp.S)
+        copyto!(chkp.S.Diag.RungeKutta.u1, chkp.S.Prog.u)
+        copyto!(chkp.S.Diag.RungeKutta.v1, chkp.S.Prog.v)
+        copyto!(chkp.S.Diag.RungeKutta.η1, chkp.S.Prog.η)
+
+        if chkp.S.parameters.compensated
+            fill!(chkp.S.Diag.Tendencies.du_sum, zero(chkp.S.parameters.Tprog))
+            fill!(chkp.S.Diag.Tendencies.dv_sum, zero(chkp.S.parameters.Tprog))
+            fill!(chkp.S.Diag.Tendencies.dη_sum, zero(chkp.S.parameters.Tprog))
+        end
+
+        for rki = 1:chkp.S.parameters.RKo
+            if rki > 1
+                ShallowWaters.ghost_points!(
+                    chkp.S.Diag.RungeKutta.u1,
+                    chkp.S.Diag.RungeKutta.v1,
+                    chkp.S.Diag.RungeKutta.η1,
+                    chkp.S
+                )
+            end
+
+            # type conversion for mixed precision
+            u1rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u1
+            v1rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v1
+            η1rhs = chkp.S.Diag.PrognosticVarsRHS.η .= chkp.S.Diag.RungeKutta.η1
+
+            ShallowWaters.rhs!(u1rhs, v1rhs, η1rhs, chkp.S.Diag, chkp.S, t)          # momentum only
+            ShallowWaters.continuity!(u1rhs, v1rhs, η1rhs, chkp.S.Diag, chkp.S, t)   # continuity equation
+
+            if rki < chkp.S.parameters.RKo
+                ShallowWaters.caxb!(
+                    chkp.S.Diag.RungeKutta.u1,
+                    chkp.S.Prog.u,
+                    chkp.S.constants.RKbΔt[rki],
+                    chkp.S.Diag.Tendencies.du
+                )
+                ShallowWaters.caxb!(
+                    chkp.S.Diag.RungeKutta.v1,
+                    chkp.S.Prog.v,
+                    chkp.S.constants.RKbΔt[rki],
+                    chkp.S.Diag.Tendencies.dv
+                )
+                ShallowWaters.caxb!(
+                    chkp.S.Diag.RungeKutta.η1,
+                    chkp.S.Prog.η,
+                    chkp.S.constants.RKbΔt[rki],
+                    chkp.S.Diag.Tendencies.dη
+                )
+            end
+
+            if chkp.S.parameters.compensated
+                ShallowWaters.axb!(chkp.S.Diag.Tendencies.du_sum, chkp.S.constants.RKaΔt[rki], chkp.S.Diag.Tendencies.du)
+                ShallowWaters.axb!(chkp.S.Diag.Tendencies.dv_sum, chkp.S.constants.RKaΔt[rki], chkp.S.Diag.Tendencies.dv)
+                ShallowWaters.axb!(chkp.S.Diag.Tendencies.dη_sum, chkp.S.constants.RKaΔt[rki], chkp.S.Diag.Tendencies.dη)
+            else
+                ShallowWaters.axb!(
+                    chkp.S.Diag.RungeKutta.u0,
+                    chkp.S.constants.RKaΔt[rki],
+                    chkp.S.Diag.Tendencies.du
+                )
+                ShallowWaters.axb!(
+                    chkp.S.Diag.RungeKutta.v0,
+                    chkp.S.constants.RKaΔt[rki],
+                    chkp.S.Diag.Tendencies.dv
+                )
+                ShallowWaters.axb!(
+                    chkp.S.Diag.RungeKutta.η0,
+                    chkp.S.constants.RKaΔt[rki],
+                    chkp.S.Diag.Tendencies.dη
+                )
+            end
+        end
+
+        if chkp.S.parameters.compensated
+            ShallowWaters.axb!(chkp.S.Diag.Tendencies.du_sum, -1, chkp.S.Diag.Tendencies.du_comp)
+            ShallowWaters.axb!(chkp.S.Diag.Tendencies.dv_sum, -1, chkp.S.Diag.Tendencies.dv_comp)
+            ShallowWaters.axb!(chkp.S.Diag.Tendencies.dη_sum, -1, chkp.S.Diag.Tendencies.dη_comp)
+
+            ShallowWaters.axb!(chkp.S.Diag.RungeKutta.u0, 1, chkp.S.Diag.Tendencies.du_sum)
+            ShallowWaters.axb!(chkp.S.Diag.RungeKutta.v0, 1, chkp.S.Diag.Tendencies.dv_sum)
+            ShallowWaters.axb!(chkp.S.Diag.RungeKutta.η0, 1, chkp.S.Diag.Tendencies.dη_sum)
+
+            ShallowWaters.dambmc!(
+                chkp.S.Diag.Tendencies.du_comp,
+                chkp.S.Diag.RungeKutta.u0,
+                chkp.S.Prog.u,
+                chkp.S.Diag.Tendencies.du_sum
+            )
+            ShallowWaters.dambmc!(
+                chkp.S.Diag.Tendencies.dv_comp,
+                chkp.S.Diag.RungeKutta.v0,
+                chkp.S.Prog.v,
+                chkp.S.Diag.Tendencies.dv_sum
+            )
+            ShallowWaters.dambmc!(
+                chkp.S.Diag.Tendencies.dη_comp,
+                chkp.S.Diag.RungeKutta.η0,
+                chkp.S.Prog.η,
+                chkp.S.Diag.Tendencies.dη_sum
+            )
+        end
+
+        ShallowWaters.ghost_points!(
+            chkp.S.Diag.RungeKutta.u0,
+            chkp.S.Diag.RungeKutta.v0,
+            chkp.S.Diag.RungeKutta.η0,
+            chkp.S
+        )
+
+        u0rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u0
+        v0rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v0
+        η0rhs = chkp.S.Diag.PrognosticVarsRHS.η .= chkp.S.Diag.RungeKutta.η0
+
+        if chkp.S.parameters.dynamics == "nonlinear" && chkp.S.grid.nstep_advcor > 0 && (i % chkp.S.grid.nstep_advcor) == 0
+            ShallowWaters.UVfluxes!(u0rhs, v0rhs, η0rhs, chkp.S.Diag, chkp.S)
+            ShallowWaters.advection_coriolis!(u0rhs, v0rhs, η0rhs, chkp.S.Diag, chkp.S)
+        end
+
+        if (chkp.i % chkp.S.grid.nstep_diff) == 0
+        ShallowWaters.bottom_drag!(u0rhs, v0rhs, η0rhs, chkp.S.Diag, chkp.S)
+        ShallowWaters.diffusion!(u0rhs, v0rhs, chkp.S.Diag, chkp.S)
+        ShallowWaters.add_drag_diff_tendencies!(
+            chkp.S.Diag.RungeKutta.u0,
+            chkp.S.Diag.RungeKutta.v0,
+            chkp.S.Diag,
+            chkp.S
+        )
+        ShallowWaters.ghost_points_uv!(
+            chkp.S.Diag.RungeKutta.u0,
+            chkp.S.Diag.RungeKutta.v0,
+            chkp.S
+        )
+        end
+
+        t += chkp.S.grid.dtint
+
+        u0rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u0
+        v0rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v0
+
+        ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
 
     if i in chkp.data_steps
         temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(
@@ -479,7 +690,6 @@ function gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
         0.0
     )
     dchkp = Enzyme.make_zero(chkp)
-    dchkp.S.parameters.J = 1.0
 
     # dFx_fx0_val = dFx_fx0(chkp)
 
@@ -616,15 +826,15 @@ function finitedifference(x_coord, y_coord)
         α=2,
         nx=128,
         Ndays=Ndays,
-        initial_cond="ncfile",
-        initpath="./data_files_forkf/128_spinup_noforcing/"
+        initial_cond="rest"
+        # initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
     S_true = ShallowWaters.model_setup(P1)
     data, _ = generate_data(S_true, data_spots, sigma_data)
 
     snaps = Int(floor(sqrt(S_true.grid.nt)))
-    revolve = Revolve{ShallowWaters.ModelSetup}(S_true.grid.nt,
+    revolve = Revolve{Chkp{T, T}}(S_true.grid.nt,
         snaps;
         verbose=1,
         gc=true,
@@ -632,6 +842,7 @@ function finitedifference(x_coord, y_coord)
         write_checkpoints_filename = "",
         write_checkpoints_period = 224
     )
+    data_spots = Int.(data_spots)
 
     P2 = ShallowWaters.Parameter(T=Float32;
         output=false,
@@ -651,8 +862,8 @@ function finitedifference(x_coord, y_coord)
         nx=128,
         Fx0 = 0.00012,
         Ndays=Ndays,
-        initial_cond="ncfile",
-        initpath="./data_files_forkf/128_spinup_noforcing/"
+        initial_cond="rest",
+        # initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
     S_pred = ShallowWaters.model_setup(P2)
@@ -668,15 +879,28 @@ function finitedifference(x_coord, y_coord)
     )
     dchkp = Enzyme.make_zero(chkp)
 
+    chkp2 = deepcopy(chkp)
+    dchkp2 = Enzyme.make_zero(dchkp)
+
     chkp_prim = deepcopy(chkp)
     J_outer = cpintegrate(chkp_prim, revolve)
 
-    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), cpintegrate,
+    @time autodiff(
+        set_runtime_activity(Enzyme.ReverseWithPrimal),
+        cpintegrate,
+        Active,
         Duplicated(chkp, dchkp),
         Const(revolve)
-    )
+    )[2]
 
     enzyme_deriv = dchkp.S.parameters.Fx0
+    println("Derivative with checkpointing: $enzyme_deriv")
+
+    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal), integrate,
+        Duplicated(chkp2, dchkp2),
+    )
+    enzyme_deriv2 = dchkp.S.parameters.Fx0
+    println("Derivative without checkpointing: $enzyme_deriv2")
 
     steps = [10, 1, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9]
 
@@ -702,8 +926,8 @@ function finitedifference(x_coord, y_coord)
 #        Fx0 = 0.00012,
         Fx0 = 0.00012 + s,
         Ndays=Ndays,
-        initial_cond="ncfile",
-        initpath="./data_files_forkf/128_spinup_noforcing/")
+        initial_cond="rest")
+        # initpath="./data_files_forkf/128_spinup_noforcing/")
 
         S_inner = ShallowWaters.model_setup(P3)
 
@@ -727,6 +951,6 @@ function finitedifference(x_coord, y_coord)
 
 end
 
-diffs, enzyme_deriv, chkp_prim, dchkp = finitedifference(20, 30)
+# diffs, enzyme_deriv, chkp_prim, dchkp = finitedifference(20, 30)
 
-@show enzyme_deriv
+# @show enzyme_deriv

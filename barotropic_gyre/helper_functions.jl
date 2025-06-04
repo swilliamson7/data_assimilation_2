@@ -86,9 +86,9 @@ function one_step_function(S)
         end
 
         # type conversion for mixed precision
-        u1rhs = convert(Diag.PrognosticVarsRHS.u,u1)
-        v1rhs = convert(Diag.PrognosticVarsRHS.v,v1)
-        η1rhs = convert(Diag.PrognosticVarsRHS.η,η1)
+        u1rhs = Diag.PrognosticVarsRHS.u .= u1
+        v1rhs = Diag.PrognosticVarsRHS.v .= v1
+        η1rhs = Diag.PrognosticVarsRHS.η .= η1
 
         ShallowWaters.rhs!(u1rhs,v1rhs,η1rhs,Diag,S,t)          # momentum only
         ShallowWaters.continuity!(u1rhs,v1rhs,η1rhs,Diag,S,t)   # continuity equation
@@ -128,9 +128,9 @@ function one_step_function(S)
     ShallowWaters.ghost_points!(u0,v0,η0,S)
 
     # type conversion for mixed precision
-    u0rhs = convert(Diag.PrognosticVarsRHS.u,u0)
-    v0rhs = convert(Diag.PrognosticVarsRHS.v,v0)
-    η0rhs = convert(Diag.PrognosticVarsRHS.η,η0)
+    u0rhs = S.Diag.PrognosticVarsRHS.u .= S.Diag.RungeKutta.u0
+    v0rhs = S.Diag.PrognosticVarsRHS.v .= S.Diag.RungeKutta.v0
+    η0rhs = S.Diag.PrognosticVarsRHS.η .= S.Diag.RungeKutta.η0
 
     # ADVECTION and CORIOLIS TERMS
     # although included in the tendency of every RK substep,
@@ -153,8 +153,8 @@ function one_step_function(S)
     t += dtint
 
     # TRACER ADVECTION
-    u0rhs = convert(Diag.PrognosticVarsRHS.u,u0) 
-    v0rhs = convert(Diag.PrognosticVarsRHS.v,v0)
+    u0rhs = S.Diag.PrognosticVarsRHS.u .= S.Diag.RungeKutta.u0
+    v0rhs = S.Diag.PrognosticVarsRHS.v .= S.Diag.RungeKutta.v0
     ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S)
 
     # Copy back from substeps
