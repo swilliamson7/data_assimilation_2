@@ -114,9 +114,9 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
         ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
     
         # calculate PV terms for initial conditions
-        urhs = S.Diag.PrognosticVarsRHS.u .= S.Prog.u
-        vrhs = S.Diag.PrognosticVarsRHS.v .= S.Prog.v
-        ηrhs = S.Diag.PrognosticVarsRHS.η .= S.Prog.η
+        urhs = S_kf.Diag.PrognosticVarsRHS.u .= S_kf.Prog.u
+        vrhs = S_kf.Diag.PrognosticVarsRHS.v .= S_kf.Prog.v
+        ηrhs = S_kf.Diag.PrognosticVarsRHS.η .= S_kf.Prog.η
     
         ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S_kf)
         ShallowWaters.PVadvection!(Diag,S_kf)
@@ -304,9 +304,9 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
         ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
     
         # calculate PV terms for initial conditions
-        urhs = S.Diag.PrognosticVarsRHS.u .= S.Prog.u
-        vrhs = S.Diag.PrognosticVarsRHS.v .= S.Prog.v
-        ηrhs = S.Diag.PrognosticVarsRHS.η .= S.Prog.η
+        urhs = S_kf.Diag.PrognosticVarsRHS.u .= S_kf.Prog.u
+        vrhs = S_kf.Diag.PrognosticVarsRHS.v .= S_kf.Prog.v
+        ηrhs = S_kf.Diag.PrognosticVarsRHS.η .= S_kf.Prog.η
     
         ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S_kf)
         ShallowWaters.PVadvection!(Diag,S_kf)
@@ -492,9 +492,9 @@ function exp4_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
         ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
     
         # calculate PV terms for initial conditions
-        urhs = S.Diag.PrognosticVarsRHS.u .= S.Prog.u
-        vrhs = S.Diag.PrognosticVarsRHS.v .= S.Prog.v
-        ηrhs = S.Diag.PrognosticVarsRHS.η .= S.Prog.η
+        urhs = S_kf.Diag.PrognosticVarsRHS.u .= S_kf.Prog.u
+        vrhs = S_kf.Diag.PrognosticVarsRHS.v .= S_kf.Prog.v
+        ηrhs = S_kf.Diag.PrognosticVarsRHS.η .= S_kf.Prog.η
     
         ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S_kf)
         ShallowWaters.PVadvection!(Diag,S_kf)

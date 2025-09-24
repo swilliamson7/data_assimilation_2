@@ -1,9 +1,9 @@
-mutable struct exp2hr_Chkp{T1,T2}
-    S::ShallowWaters.ModelSetup{T1,T2}      # model structure
-    data::Matrix{Float32}                   # computed data
-    data_spots::Vector{Int}                 # location of data points spatially
-    data_steps::StepRange{Int, Int}         # location of data points temporally
-    J::Float64                              # objective function value
+mutable struct exp2hr_model{T}
+    S::ShallowWaters.ModelSetup{T,T}        # model structure
+    data::Array{T, 2}                       # data to be assimilated
+    data_spots::Array{Int, 1}               # where data is located, grid coordinates
+    data_steps::StepRange{Int, Int}         # when data is assimilated
+    J::Float64                              # objective value
     j::Int                                  # for keeping track of location in data
     i::Int                                  # timestep iterator
     t::Int64                                # model time
@@ -111,7 +111,7 @@ function exp2hr_cpintegrate(chkp, scheme)::Float64
 
     # run integration loop with checkpointing
     chkp.j = 1
-    @checkpoint_struct scheme chkp for chkp.i = 1:chkp.S.grid.nt
+    @ad_checkpoint scheme for chkp.i = 1:chkp.S.grid.nt
 
         t = chkp.S.t
         i = chkp.i
@@ -285,37 +285,39 @@ end
 function exp2hr_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
 
     # Type precision
-    T = Float32
+    T = Float64
 
-    P = ShallowWaters.Parameter(T=Float32;
-    output=false,
-    L_ratio=1,
-    g=9.81,
-    H=500,
-    wind_forcing_x="double_gyre",
-    Lx=3840e3,
-    tracer_advection=false,
-    tracer_relaxation=false,
-    seasonal_wind_x=false,
-    topography="flat",
-    bc="nonperiodic",
-    bottom_drag="quadratic",
-    α=2,
-    nx=128,
-    Ndays=Ndays,
-    initial_cond="ncfile",
-    initpath="./data_files_forkf/128_spinup_noforcing/"
+    P = ShallowWaters.Parameter(T=T;
+        output=false,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        tracer_advection=false,
+        tracer_relaxation=false,
+        seasonal_wind_x=false,
+        topography="flat",
+        bc="nonperiodic",
+        bottom_drag="quadratic",
+        α=2,
+        nx=128,
+        Ndays=Ndays,
+        initial_cond="ncfile",
+        initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
     S = ShallowWaters.model_setup(P)
-
-    S.Prog.u = reshape(param_guess[1:17292], 131, 132)
-    S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
-    S.Prog.η = reshape(param_guess[34585:end], 130, 130)
+    current = 1
+    for m in (S.Prog.u, S.Prog.v, S.Prog.η)
+        sz = prod(size(m))
+        m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
+        current += sz
+    end
 
     data_spots = Int.(data_spots)
 
-    chkp = exp2hr_Chkp{T, T}(S,
+    chkp = exp2hr_model{T}(S,
         data,
         data_spots,
         data_steps,
@@ -334,7 +336,7 @@ end
 function exp2hr_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     # Type precision
-    T = Float32
+    T = Float64
 
     P = ShallowWaters.Parameter(T=T;
         output=false,
@@ -359,12 +361,15 @@ function exp2hr_gradient_eval(G, param_guess, data, data_spots, data_steps, Nday
 
     S = ShallowWaters.model_setup(P)
 
-    S.Prog.u = reshape(param_guess[1:17292], 131, 132)
-    S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
-    S.Prog.η = reshape(param_guess[34585:end], 130, 130)
+    current = 1
+    for m in (S.Prog.u, S.Prog.v, S.Prog.η)
+        sz = prod(size(m))
+        m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
+        current += sz
+    end
 
     snaps = Int(floor(sqrt(S.grid.nt)))
-    revolve = Revolve{exp2hr_Chkp{T, T}}(S.grid.nt,
+    revolve = Revolve{exp2hr_model{T}}(S.grid.nt,
         snaps;
         verbose=1,
         gc=true,
@@ -374,7 +379,7 @@ function exp2hr_gradient_eval(G, param_guess, data, data_spots, data_steps, Nday
     )
     data_spots = Int.(data_spots)
 
-    chkp = exp2hr_Chkp{T, T}(S,
+    chkp = exp2hr_model{T}(S,
         data,
         data_spots,
         data_steps,
@@ -413,7 +418,21 @@ function exp2hr_FG(F, G, param_guess, data, data_spots, data_steps, Ndays)
 
 end
 
-function exp2hr_initialcond_uvdata(N, data_spots, data_steps, sigma_initcond, sigma_data; kwargs...)
+function run_exp2hr_initialcond_uvdata()
+
+    xu = 30:10:100
+    yu = 40:10:100
+    Xu = xu' .* ones(length(yu))
+    Yu = ones(length(xu))' .* yu
+
+    N = 10
+    sigma_data = 0.5        # this and the init cond are what the result from optimization used, be careful in adjusting
+    sigma_initcond = .01
+    data_steps = 1:225:6733
+    data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
+    data_spots = [data_spotsu; data_spotsv]
+    Ndays = 30
 
     P_pred = ShallowWaters.Parameter(T=Float32; output=false,
         L_ratio=1,
@@ -508,7 +527,7 @@ function exp2hr_initialcond_uvdata(N, data_spots, data_steps, sigma_initcond, si
 
     fg!_closure(F, G, ic) = exp2_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, copy(param_guess), Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
+    result = Optim.optimize(obj_fg, copy(param_guess), Optim.LBFGS(), Optim.Options(show_trace=true, iterations=50))
 
     S_adj = ShallowWaters.model_setup(output=false,
         L_ratio=1,
@@ -527,9 +546,12 @@ function exp2hr_initialcond_uvdata(N, data_spots, data_steps, sigma_initcond, si
         nx=128,
         Ndays=Ndays
     )
-    S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
-    S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
-    S_adj.Prog.η = reshape(result.minimizer[34585:end], 130, 130)
+    current = 1
+    for m in (S_adj.Prog.u, S_adj.Prog.v, S_adj.Prog.η)
+        sz = prod(size(m))
+        m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
+        current += sz
+    end
 
     # uad = JLD2.load("exp2_minimizer_initcond_adjoint_042525.jld2")["u"]
     # vad = JLD2.load("exp2_minimizer_initcond_adjoint_042525.jld2")["v"]
@@ -543,52 +565,7 @@ function exp2hr_initialcond_uvdata(N, data_spots, data_steps, sigma_initcond, si
     return result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
 end
 
-function run_exp2()
-
-    xu = 30:10:100
-    yu = 40:10:100
-    Xu = xu' .* ones(length(yu))
-    Yu = ones(length(xu))' .* yu
-
-    N = 10
-    sigma_data = 0.5        # this and the init cond are what the result from optimization used, be careful in adjusting
-    sigma_initcond = .01
-    data_steps = 1:225:6733
-    data_spotsu = vec((Xu.-1) .* 127 + Yu)
-    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
-    data_spots = [data_spotsu; data_spotsv]
-    Ndays = 30
-
-    result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj = exp2_initialcond_uvdata(N,
-        data_spots,
-        data_steps,
-        sigma_initcond,
-        sigma_data,
-        output=false,
-        L_ratio=1,
-        g=9.81,
-        H=500,
-        wind_forcing_x="double_gyre",
-        Lx=3840e3,
-        tracer_advection=false,
-        tracer_relaxation=false,
-        bottom_drag="quadratic",
-        seasonal_wind_x=false,
-        data_steps=data_steps,
-        topography="flat",
-        bc="nonperiodic",
-        α=2,
-        nx=128,
-        Ndays=Ndays,
-        initial_cond="ncfile",
-        initpath="./data_files_forkf/128_spinup_noforcing/"
-    )
-
-    return result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
-
-end
-
-function exp2_plots()
+function exp2_hr_plots()
 
     # S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
 

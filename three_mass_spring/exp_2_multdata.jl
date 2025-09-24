@@ -231,3 +231,58 @@ end
 #     push!(diffs, (total_cost - for_checking)/s)
 
 # end
+
+# periodogram(s::AbstractVector; onesided=eltype(s)<:Real, nfft=nextfastfft(length(s)), fs=1, window=nothing)
+
+function f()
+
+fig = Figure(size=(700,400));
+ax1 = Axis(fig[1,1], ylabel="Energy");
+vlines!(ax1, data_steps, color=:gray75, linestyle=:dot);
+lines!(ax1, params_true.energy[3,:], label=L"\varepsilon(t)");
+lines!(ax1, params_pred.energy[3,:], label = L"\tilde{\varepsilon}(t, -)");
+lines!(ax1, params_kf.energy[3,:], label = L"\tilde{\varepsilon}(t)",linestyle=:dash);
+lines!(ax1, params_adjoint.energy[3,:], label = L"\tilde{\varepsilon}(t, +)",linestyle=:dashdot);
+
+range = 3000:6000
+
+fig2 = Figure(size=(800,400));
+ax1 = Axis(fig2[1,1], ylabel="Energy", xlabel="Timestep", title="Energy zoomed in to steps 3000 to 6000");
+vlines!(ax1, data_steps[1:4], color=:gray75, linestyle=:dot);
+lines!(ax1, range, params_true.energy[3,range], label=L"\varepsilon(t)");
+lines!(ax1, range, params_pred.energy[3,range], label = L"\tilde{\varepsilon}(t, -)");
+lines!(ax1, range, params_kf.energy[3,range], label = L"\tilde{\varepsilon}(t)",linestyle=:dash);
+lines!(ax1, range, params_adjoint.energy[3,range], label = L"\tilde{\varepsilon}(t, +)",linestyle=:dashdot);
+
+num = size(freq(periodogram(params_adjoint.energy[3,range])))[1]
+frequency = freq(periodogram(params_adjoint.energy[3,range]));# ./ ((range[end]-range[1]));
+powers_true = zeros(3, num)
+powers_pred = zeros(3, num)
+powers_kf = zeros(3, num)
+powers_adj = zeros(3,num)
+for j = 1:3
+
+    powers_true[j, :] = power(periodogram(params_true.states[j+3,range]))
+    powers_pred[j, :] = power(periodogram(params_pred.states[j+3,range]))
+    powers_kf[j, :] = power(periodogram(params_kf.states[j+3,range]))
+    powers_adj[j, :] = power(periodogram(params_adjoint.states[j+3,range]));
+
+end
+
+kespec_true = powers_true[1,:] .+ powers_true[2,:] .+ powers_true[3,:]
+kespec_pred = powers_pred[1,:] .+ powers_pred[2,:] .+ powers_pred[3,:]
+kespec_kf = powers_kf[1,:] .+ powers_kf[2,:] .+ powers_kf[3,:]
+kespec_adj = powers_adj[1,:] .+ powers_adj[2,:] .+ powers_adj[3,:]
+
+ax2 = Axis(fig2[2,1], ylabel="Energy spectrum",xlabel="Frequency", xscale=log10,yscale=log10, title="KE Spectrum computed from steps 3000 to 6000");
+vlines!(ax2, [1/300, 2/300, 3/300, 4/300], color=:gray75, linestyle=:dot);
+lines!(ax2, frequency[2:end], kespec_true[2:end], label="True");
+lines!(ax2, frequency[2:end], kespec_pred[2:end], label="Prediction");
+lines!(ax2, frequency[2:end], kespec_kf[2:end], label="Kalman filter", linestyle=:dash);
+lines!(ax2, frequency[2:end], kespec_adj[2:end], label="Adjoint", linestyle=:dashdot);
+
+fig2[1,2] = Legend(fig2, ax1)
+fig2[2,2] = Legend(fig2, ax2)
+
+return fig
+end

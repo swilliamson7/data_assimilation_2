@@ -1,6 +1,6 @@
 using CairoMakie, Enzyme, LinearAlgebra, Statistics, Random
 using Parameters, UnPack, LaTeXStrings
-using Optim
+using Optim, DSP, FFTW
 
 # Chosen random seed 649, will be used for all experiments 
 Random.seed!(649)

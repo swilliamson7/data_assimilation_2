@@ -206,6 +206,8 @@ function exp4_cpintegrate(chkp, scheme)::Float64
     Fx, _ = ShallowWaters.DoubleGyreWind(typeof(forcing).parameters[1], chkp.S.parameters, chkp.S.grid)
     chkp.S.forcing = ShallowWaters.Forcing(Fx, forcing.Fy, forcing.H, forcing.η_ref, forcing.Fη)
 
+    @show chkp.S.parameters.Fx0
+
     # calculate layer thicknesses for initial conditions
     ShallowWaters.thickness!(chkp.S.Diag.VolumeFluxes.h, chkp.S.Prog.η, chkp.S.forcing.H)
     ShallowWaters.Ix!(chkp.S.Diag.VolumeFluxes.h_u, chkp.S.Diag.VolumeFluxes.h)
@@ -378,21 +380,21 @@ function exp4_cpintegrate(chkp, scheme)::Float64
 
         ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
 
-        # if i in chkp.data_steps
-        #     temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(
-        #         chkp.S.Prog.u,
-        #         chkp.S.Prog.v,
-        #         chkp.S.Prog.η,
-        #         chkp.S.Prog.sst,
-        #         chkp.S
-        #     )...)
+        if i in chkp.data_steps
+            temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(
+                chkp.S.Prog.u,
+                chkp.S.Prog.v,
+                chkp.S.Prog.η,
+                chkp.S.Prog.sst,
+                chkp.S
+            )...)
 
-        #     tempuv = [vec(temp.u); vec(temp.v)][chkp.data_spots]
+            tempuv = [vec(temp.u); vec(temp.v)][chkp.data_spots]
 
-        #     chkp.J += sum((tempuv - chkp.data[:, chkp.j]).^2) ./ (0.5^2)
+            chkp.J += sum((tempuv - chkp.data[:, chkp.j]).^2) ./ (0.5^2)
 
-        #     chkp.j += 1
-        # end
+            chkp.j += 1
+        end
 
         ##### time-averaging the objective function #######
         # chkp.J = chkp.J / length((chkp.S.grid.nt - 7*224):1:chkp.S.grid.nt) # time-averaging
@@ -828,9 +830,7 @@ function exp4_forcing(N, Ndays, data_spots, data_steps, sigma_initcond, sigma_da
     dS = Enzyme.Compiler.make_zero(S_pred)
     G = [0.0]
 
-    dchkp = exp4_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
-
-    @show dchkp.S.parameters.Fx0
+    # exp4_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
 
     fg!_closure(F, G, ic) = exp4_FG(F, G, ic, data, data_spots, data_steps, Ndays)
     obj_fg = Optim.only_fg!(fg!_closure)
@@ -844,11 +844,8 @@ function exp4_forcing(N, Ndays, data_spots, data_steps, sigma_initcond, sigma_da
     # )
 
     S_adj = ShallowWaters.model_setup(P_true)
-    S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
-    S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
-    S_adj.Prog.η = reshape(result.minimizer[34585:end-1], 130, 130)
-    S_adj.parameters.Fx0 = result.minimizer[end]
-    _, states_adj = exp3_generate_data(S_adj, data_spots, sigma_data)
+    S_adj.parameters.Fx0 = result.minimizer[1]
+    _, states_adj = exp4_generate_data(S_adj, data_spots, sigma_data)
 
     return result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
 
