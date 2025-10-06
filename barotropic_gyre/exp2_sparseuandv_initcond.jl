@@ -172,14 +172,14 @@ function exp2_generate_data(S_true, data_steps, data_spots, sigma_data; compute_
         ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
 
         # storing daily states for the "true" values
-        if t ∈ 225:225:S_true.grid.nt
+        if t ∈ 10:10:S_true.grid.nt
             temp1 = ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)
             push!(true_states, temp1)
         end
 
         # generating the data
-        if t ∈ S_true.parameters.data_steps
+        if t ∈ data_steps
             tempu = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).u)
             tempv = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
@@ -749,9 +749,9 @@ function exp2_initialcond_uvdata()
     Xu = xu' .* ones(length(yu))
     Yu = ones(length(xu))' .* yu
 
-    N = 10
-    sigma_data = 0.5                # this and the init cond are what the result from optimization used, be careful in adjusting
-    sigma_initcond = 10.
+    N = 20
+    sigma_data = 0.0000001                # this and the init cond are what the result from optimization used, be careful in adjusting
+    sigma_initcond = 0.001
     data_steps = 225:225:6733
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
     data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
@@ -779,13 +779,9 @@ function exp2_initialcond_uvdata()
     )
 
     S_true = ShallowWaters.model_setup(P_pred)
+    S_pred = ShallowWaters.model_setup(P_pred)
 
     data, true_states = exp2_generate_data(S_true, data_steps, data_spots, sigma_data)
-
-    S_pred = ShallowWaters.model_setup(P_pred)
-    for t = 1:224*3
-        _ = one_step_function(S_pred)
-    end
 
     Prog_pred = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_pred.Prog.u,
         S_pred.Prog.v,
@@ -808,11 +804,11 @@ function exp2_initialcond_uvdata()
             vrand = randn(4)
             for k = 1:127
                 for j = 1:128
-                    upert[k,j] = sigma_initcond * urand[1] * cos((pi * n / 127) * k)*cos(pi * m / 128 * j)
+                    upert[k,j] += sigma_initcond * urand[1] * cos((pi * n / 127) * k)*cos(pi * m / 128 * j)
                         + sigma_initcond * urand[2] * sin((pi * n / 127) * k)*cos(pi * m / 128 * j)
                         + sigma_initcond * urand[3] * cos((pi * n / 127) * k)*sin(pi * m / 128 * j)
                         + sigma_initcond * urand[4] * sin((pi * n / 127) * k)*sin(pi * m / 128 * j)
-                    vpert[j,k] = sigma_initcond * vrand[1] * cos(pi * n / 128 * j) * cos(pi * m / 127 * k)
+                    vpert[j,k] += sigma_initcond * vrand[1] * cos(pi * n / 128 * j) * cos(pi * m / 127 * k)
                         + sigma_initcond * vrand[2] * cos(pi * n / 128 * j) * sin(pi * m / 127 * k)
                         + sigma_initcond * vrand[3] * sin(pi * n / 128 * j) * cos(pi * m / 127 * k)
                         + sigma_initcond * vrand[4] * sin(pi * n / 128 * j) * sin(pi * m / 127 * k)
@@ -827,7 +823,7 @@ function exp2_initialcond_uvdata()
             etarand = randn(4)
             for k = 1:128
                 for j = 1:128
-                    etapert[k,j] = sigma_initcond * etarand[1] * cos((pi * n / 128) * k)*cos(pi * m / 128 * j)
+                    etapert[k,j] += sigma_initcond * etarand[1] * cos((pi * n / 128) * k)*cos(pi * m / 128 * j)
                         + sigma_initcond * etarand[2] * cos((pi * n / 128) * k)*sin(pi * m / 128 * j)
                         + sigma_initcond * etarand[3] * sin((pi * n / 128) * k)*cos(pi * m / 128 * j)
                         + sigma_initcond * etarand[4] * sin((pi * n / 128) * k)*sin(pi * m / 128 * j)
@@ -855,6 +851,7 @@ function exp2_initialcond_uvdata()
     S_kf_all, ekf_avgu, ekf_avgv = run_ensemble_kf(N,
         data,
         param_guess,
+        data_steps,
         data_spots,
         sigma_initcond,
         sigma_data;
@@ -947,10 +944,10 @@ function exp2_plots()
 
     fig1 = Figure(size=(800,700));
     t = 673
-    ax1, hm1 = heatmap(fig1[1,1], states_adj[t].v,
+    ax1, hm1 = heatmap(fig1[1,1], true_states[t].v,
     colormap=:balance,
-    colorrange=(-maximum(states_adj[t].v),
-    maximum(states_adj[t].v)),
+    colorrange=(-maximum(true_states[t].v),
+    maximum(true_states[t].v)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
     );
     Colorbar(fig1[1,2], hm1)
@@ -1021,6 +1018,26 @@ function exp2_plots()
     )
     Colorbar(fig1[2,4], hm4)
 
+    # spatially averaged energy
+
+    true_energy = zeros(673)
+    pred_energy = zeros(673)
+    ekf_energy = zeros(673)
+
+    for t = 1:673
+
+        true_energy[t] = (sum(true_states[t].u.^2) + sum(true_states[t].v.^2)) / (128 * 127)
+        pred_energy[t] = (sum(pred_states[t].u.^2) + sum(pred_states[t].v.^2)) / (128 * 127)
+        ekf_energy[t] = (sum(ekf_avgu[t].^2) + sum(ekf_avgv[t].^2)) / (128 * 127)
+
+    end
+
+    fig = Figure(size=(800, 700));
+    lines(fig[1,1], true_energy, label="Truth")
+    lines!(fig[1,1], pred_energy, label="Pred")
+    lines!(fig[1,1], ekf_energy, label="EKF")
+    axislegend()
+
     # frequency wavenumber plots
 
     fig2 = Figure(size=(800, 500));
@@ -1040,8 +1057,8 @@ function exp2_plots()
     vp_pred = zeros(65, 673)
 
     for t = 1:673
-        up_adj[:,t] = power(periodogram(states_adj[t].u; radialavg=true))
-        vp_adj[:,t] = power(periodogram(states_adj[t].v; radialavg=true))
+        # up_adj[:,t] = power(periodogram(states_adj[t].u; radialavg=true))
+        # vp_adj[:,t] = power(periodogram(states_adj[t].v; radialavg=true))
 
         up_ekf[:,t] = power(periodogram(ekf_avgu[t]; radialavg=true))
         vp_ekf[:,t] = power(periodogram(ekf_avgv[t]; radialavg=true))
@@ -1094,8 +1111,8 @@ function exp2_plots()
     # one dimensional figures
     fig2 = Figure(size=(800, 500));
     t = 673
-    lines(fig2[1,1], adj_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint", axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
-    lines!(fig2[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
+    # lines(fig2[1,1], adj_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint", axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
+    lines(fig2[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
     lines!(fig2[1,1], true_wl[2:end], up_true[2:end,t] + vp_true[2:end,t], label="Truth")
     lines!(fig2[1,1], pred_wl[2:end], up_pred[2:end,t] + vp_pred[2:end,t], linestyle=:dash, label="Prediction")
     axislegend()

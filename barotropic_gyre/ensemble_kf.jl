@@ -20,9 +20,15 @@ This function will run the ensemble Kalman filter. It needs to be given:
     sigma_initcond - std of noise added to initial condition for each of the ensembles
     sigma_data - std of the noise added to data
 """
-function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma_data;
-    kwargs...
-    )
+function run_ensemble_kf(model, param_guess)
+
+    N = model.N
+    data = model.data
+    data_steps = model.data_steps
+    data_spots = model.data_spots
+    sigma_initcond = model.sigma_initcond
+    sigma_data = model.sigma_data
+    j = model.j
 
     # save the average u and v values from the data assimilation
     ekf_avgu = []
@@ -36,8 +42,7 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
     W = zeros(N,N)
     T = zeros(N,N)
 
-    P = ShallowWaters.Parameter(T=Float32;kwargs...)
-    S_for_values = ShallowWaters.model_setup(P)
+    S_for_values = deepcopy(model.S)
 
     nu = S_for_values.grid.nu
     nv = S_for_values.grid.nv
@@ -54,20 +59,18 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
     # whole length of u + v + eta as a column vector
     Z = zeros(48896, N)
     S_all = []
-    Progkf_all = []
 
-    bred_vectors = compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
+    bred_vectors = compute_bred_vectors(N,sigma_initcond,uic,vic,etaic,model.S.parameters)
 
     for n = 1:N
 
-        P_kf = ShallowWaters.Parameter(T=Float32;kwargs...)
-        S_kf = ShallowWaters.model_setup(P_kf)
+        S_kf = deepcopy(model.S)
 
         S_kf.Prog.u = copy(uic)
         S_kf.Prog.v = copy(vic)
         S_kf.Prog.η = copy(etaic)
 
-        P_kf = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_kf.Prog.u,
+        P_kf = ShallowWaters.PrognosticVars{S_kf.parameters.Tprog}(ShallowWaters.remove_halo(S_kf.Prog.u,
             S_kf.Prog.v,
             S_kf.Prog.η,
             S_kf.Prog.sst,
@@ -144,7 +147,7 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
         end
 
-        if t ∈ S_for_values.parameters.data_steps
+        if t ∈ data_steps
 
             for k = 1:N
 
@@ -153,7 +156,7 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
             end
 
-            d = data[:, S_for_values.parameters.j]
+            d = data[:, j]
             E = (sigma_data .* randn(size(data[:,1])[1], N)) ./ sqrt(N-1)
             D = d * ones(N)' + sqrt(N - 1) .* E
             E = D * Π
@@ -186,7 +189,7 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
             end
 
-            S_for_values.parameters.j += 1
+            j += 1
 
         end
 
@@ -206,15 +209,21 @@ function run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma
 
     end
 
-    return S_all, ekf_avgu, ekf_avgv
+    return ekf_avgu, ekf_avgv
 
 end
 
-function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, sigma_data;
-    kwargs...
-    )
+function exp3_run_ensemble_kf(model, param_guess)
 
-     # save the average u and v values from the data assimilation
+    N = model.N
+    data = model.data
+    data_steps = model.data_steps
+    data_spots = model.data_spots
+    sigma_initcond = model.sigma_initcond
+    sigma_data = model.sigma_data
+    j = model.j
+
+    # save the average u and v values from the data assimilation
     ekf_avgu = []
     ekf_avgv = []
 
@@ -226,8 +235,7 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
     W = zeros(N,N)
     T = zeros(N,N)
 
-    P = ShallowWaters.Parameter(T=Float32;kwargs...)
-    S_for_values = ShallowWaters.model_setup(P)
+    S_for_values = deepcopy(model.S)
 
     nu = S_for_values.grid.nu
     nv = S_for_values.grid.nv
@@ -246,19 +254,18 @@ function exp3_run_ensemble_kf(N, data, param_guess, data_spots, sigma_initcond, 
     S_all = []
     Progkf_all = []
 
-    bred_vectors = compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
+    bred_vectors = compute_bred_vectors(N, sigma_initcond, uic, vic, etaic, model.S.parameters)
 
     for n = 1:N
 
-        P_kf = ShallowWaters.Parameter(T=Float32;kwargs...)
-        P_kf.Fx0 = .0001 * P_kf.Fx0
-        S_kf = ShallowWaters.model_setup(P_kf)
+        S_kf = deepcopy(model.S)
+        S_kf.parameters.Fx0 = .0001 * S_kf.parameters.Fx0
 
         S_kf.Prog.u = copy(uic)
         S_kf.Prog.v = copy(vic)
         S_kf.Prog.η = copy(etaic)
 
-        P_kf = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_kf.Prog.u,
+        P_kf = ShallowWaters.PrognosticVars{S_kf.parameters.Tprog}(ShallowWaters.remove_halo(S_kf.Prog.u,
             S_kf.Prog.v,
             S_kf.Prog.η,
             S_kf.Prog.sst,
@@ -594,7 +601,7 @@ end
 This function will create N (the number of ensembles) Bred vectors, which
 will get used as the initial perturbations for the EKF
 """
-function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
+function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic,parameters)
 
     sigma_bv = 0.02
 
@@ -602,7 +609,7 @@ function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
 
     for n = 1:N
 
-        P = ShallowWaters.Parameter(T=Float32; kwargs...)
+        P = parameters
         S1 = ShallowWaters.model_setup(P)
         S2 = ShallowWaters.model_setup(P)
 
@@ -616,7 +623,7 @@ function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
         S2.Prog.v = copy(vic)
         S2.Prog.η = copy(etaic)
 
-        Prog = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S2.Prog.u,
+        Prog = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(S2.Prog.u,
             S2.Prog.v,
             S2.Prog.η,
             S2.Prog.sst,
@@ -729,14 +736,14 @@ function compute_bred_vectors(N, sigma_initcond, uic, vic, etaic; kwargs...)
                 vperturbation = (p1.v - p2.v) * (Av / normv)
                 etaperturbation = (p1.η - p2.η) * (Aeta / normeta)
 
-                Prog1 = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_all[1].Prog.u,
+                Prog1 = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(S_all[1].Prog.u,
                 S_all[1].Prog.v,
                 S_all[1].Prog.η,
                 S_all[1].Prog.sst,
                 S_all[1])...
                 )
 
-                Prog2 = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_all[2].Prog.u,
+                Prog2 = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(S_all[2].Prog.u,
                 S_all[2].Prog.v,
                 S_all[2].Prog.η,
                 S_all[2].Prog.sst,
