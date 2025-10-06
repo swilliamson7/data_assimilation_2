@@ -103,198 +103,194 @@ end
 
 function exp1_cpintegrate(model, scheme)
 
-    S = model.S
-
     # calculate layer thicknesses for initial conditions
-    ShallowWaters.thickness!(S.Diag.VolumeFluxes.h, S.Prog.η, S.forcing.H)
-    ShallowWaters.Ix!(S.Diag.VolumeFluxes.h_u, S.Diag.VolumeFluxes.h)
-    ShallowWaters.Iy!(S.Diag.VolumeFluxes.h_v, S.Diag.VolumeFluxes.h)
-    ShallowWaters.Ixy!(S.Diag.Vorticity.h_q, S.Diag.VolumeFluxes.h)
+    ShallowWaters.thickness!(model.S.Diag.VolumeFluxes.h, model.S.Prog.η, model.S.forcing.H)
+    ShallowWaters.Ix!(model.S.Diag.VolumeFluxes.h_u, model.S.Diag.VolumeFluxes.h)
+    ShallowWaters.Iy!(model.S.Diag.VolumeFluxes.h_v, model.S.Diag.VolumeFluxes.h)
+    ShallowWaters.Ixy!(model.S.Diag.Vorticity.h_q, model.S.Diag.VolumeFluxes.h)
 
     # calculate PV terms for initial conditions
-    urhs = S.Diag.PrognosticVarsRHS.u .= S.Prog.u
-    vrhs = S.Diag.PrognosticVarsRHS.v .= S.Prog.v
-    ηrhs = S.Diag.PrognosticVarsRHS.η .= S.Prog.η
+    urhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Prog.u
+    vrhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Prog.v
+    ηrhs = model.S.Diag.PrognosticVarsRHS.η .= model.S.Prog.η
 
-    ShallowWaters.advection_coriolis!(urhs, vrhs, ηrhs, S.Diag, S)
-    ShallowWaters.PVadvection!(S.Diag, S)
+    ShallowWaters.advection_coriolis!(urhs, vrhs, ηrhs, model.S.Diag, model.S)
+    ShallowWaters.PVadvection!(model.S.Diag, model.S)
 
     # propagate initial conditions
-    copyto!(S.Diag.RungeKutta.u0, S.Prog.u)
-    copyto!(S.Diag.RungeKutta.v0, S.Prog.v)
-    copyto!(S.Diag.RungeKutta.η0, S.Prog.η)
+    copyto!(model.S.Diag.RungeKutta.u0, model.S.Prog.u)
+    copyto!(model.S.Diag.RungeKutta.v0, model.S.Prog.v)
+    copyto!(model.S.Diag.RungeKutta.η0, model.S.Prog.η)
 
     # store initial conditions of sst for relaxation
-    copyto!(S.Diag.SemiLagrange.sst_ref, S.Prog.sst)
+    copyto!(model.S.Diag.SemiLagrange.sst_ref, model.S.Prog.sst)
 
     # run integration loop with checkpointing
     model.j = 1
-    @ad_checkpoint scheme for model.i = 1:S.grid.nt
+    @ad_checkpoint scheme for model.i = 1:model.S.grid.nt
 
-        t = model.t
+        t = model.S.t
         i = model.i
 
         # ghost point copy for boundary conditions
-        ShallowWaters.ghost_points!(S.Prog.u, S.Prog.v, S.Prog.η, S)
-        copyto!(S.Diag.RungeKutta.u1, S.Prog.u)
-        copyto!(S.Diag.RungeKutta.v1, S.Prog.v)
-        copyto!(S.Diag.RungeKutta.η1, S.Prog.η)
+        ShallowWaters.ghost_points!(model.S.Prog.u, model.S.Prog.v, model.S.Prog.η, model.S)
+        copyto!(model.S.Diag.RungeKutta.u1, model.S.Prog.u)
+        copyto!(model.S.Diag.RungeKutta.v1, model.S.Prog.v)
+        copyto!(model.S.Diag.RungeKutta.η1, model.S.Prog.η)
 
-        if S.parameters.compensated
-            fill!(S.Diag.Tendencies.du_sum, zero(S.parameters.Tprog))
-            fill!(S.Diag.Tendencies.dv_sum, zero(S.parameters.Tprog))
-            fill!(S.Diag.Tendencies.dη_sum, zero(S.parameters.Tprog))
+        if model.S.parameters.compensated
+            fill!(model.S.Diag.Tendencies.du_sum, zero(model.S.parameters.Tprog))
+            fill!(model.S.Diag.Tendencies.dv_sum, zero(model.S.parameters.Tprog))
+            fill!(model.S.Diag.Tendencies.dη_sum, zero(model.S.parameters.Tprog))
         end
 
-        for rki = 1:S.parameters.RKo
+        for rki = 1:model.S.parameters.RKo
             if rki > 1
                 ShallowWaters.ghost_points!(
-                    S.Diag.RungeKutta.u1,
-                    S.Diag.RungeKutta.v1,
-                    S.Diag.RungeKutta.η1,
-                    S
+                    model.S.Diag.RungeKutta.u1,
+                    model.S.Diag.RungeKutta.v1,
+                    model.S.Diag.RungeKutta.η1,
+                    model.S
                 )
             end
 
             # type conversion for mixed precision
-            u1rhs = S.Diag.PrognosticVarsRHS.u .= S.Diag.RungeKutta.u1
-            v1rhs = S.Diag.PrognosticVarsRHS.v .= S.Diag.RungeKutta.v1
-            η1rhs = S.Diag.PrognosticVarsRHS.η .= S.Diag.RungeKutta.η1
+            u1rhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Diag.RungeKutta.u1
+            v1rhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Diag.RungeKutta.v1
+            η1rhs = model.S.Diag.PrognosticVarsRHS.η .= model.S.Diag.RungeKutta.η1
 
-            ShallowWaters.rhs!(u1rhs, v1rhs, η1rhs, S.Diag, S, t)          # momentum only
-            ShallowWaters.continuity!(u1rhs, v1rhs, η1rhs, S.Diag, S, t)   # continuity equation
+            ShallowWaters.rhs!(u1rhs, v1rhs, η1rhs, model.S.Diag, model.S, t)          # momentum only
+            ShallowWaters.continuity!(u1rhs, v1rhs, η1rhs, model.S.Diag, model.S, t)   # continuity equation
 
-            if rki < S.parameters.RKo
+            if rki < model.S.parameters.RKo
                 ShallowWaters.caxb!(
-                    S.Diag.RungeKutta.u1,
-                    S.Prog.u,
-                    S.constants.RKbΔt[rki],
-                    S.Diag.Tendencies.du
+                    model.S.Diag.RungeKutta.u1,
+                    model.S.Prog.u,
+                    model.S.constants.RKbΔt[rki],
+                    model.S.Diag.Tendencies.du
                 )
                 ShallowWaters.caxb!(
-                    S.Diag.RungeKutta.v1,
-                    S.Prog.v,
-                    S.constants.RKbΔt[rki],
-                    S.Diag.Tendencies.dv
+                    model.S.Diag.RungeKutta.v1,
+                    model.S.Prog.v,
+                    model.S.constants.RKbΔt[rki],
+                    model.S.Diag.Tendencies.dv
                 )
                 ShallowWaters.caxb!(
-                    S.Diag.RungeKutta.η1,
-                    S.Prog.η,
-                    S.constants.RKbΔt[rki],
-                    S.Diag.Tendencies.dη
+                    model.S.Diag.RungeKutta.η1,
+                    model.S.Prog.η,
+                    model.S.constants.RKbΔt[rki],
+                    model.S.Diag.Tendencies.dη
                 )
             end
 
-            if S.parameters.compensated
-                ShallowWaters.axb!(S.Diag.Tendencies.du_sum, S.constants.RKaΔt[rki], S.Diag.Tendencies.du)
-                ShallowWaters.axb!(S.Diag.Tendencies.dv_sum, S.constants.RKaΔt[rki], S.Diag.Tendencies.dv)
-                ShallowWaters.axb!(S.Diag.Tendencies.dη_sum, S.constants.RKaΔt[rki], S.Diag.Tendencies.dη)
+            if model.S.parameters.compensated
+                ShallowWaters.axb!(model.S.Diag.Tendencies.du_sum, model.S.constants.RKaΔt[rki], model.S.Diag.Tendencies.du)
+                ShallowWaters.axb!(model.S.Diag.Tendencies.dv_sum, model.S.constants.RKaΔt[rki], model.S.Diag.Tendencies.dv)
+                ShallowWaters.axb!(model.S.Diag.Tendencies.dη_sum, model.S.constants.RKaΔt[rki], model.S.Diag.Tendencies.dη)
             else
                 ShallowWaters.axb!(
-                    S.Diag.RungeKutta.u0,
-                    S.constants.RKaΔt[rki],
-                    S.Diag.Tendencies.du
+                    model.S.Diag.RungeKutta.u0,
+                    model.S.constants.RKaΔt[rki],
+                    model.S.Diag.Tendencies.du
                 )
                 ShallowWaters.axb!(
-                    S.Diag.RungeKutta.v0,
-                    S.constants.RKaΔt[rki],
-                    S.Diag.Tendencies.dv
+                    model.S.Diag.RungeKutta.v0,
+                    model.S.constants.RKaΔt[rki],
+                    model.S.Diag.Tendencies.dv
                 )
                 ShallowWaters.axb!(
-                    S.Diag.RungeKutta.η0,
-                    S.constants.RKaΔt[rki],
-                    S.Diag.Tendencies.dη
+                    model.S.Diag.RungeKutta.η0,
+                    model.S.constants.RKaΔt[rki],
+                    model.S.Diag.Tendencies.dη
                 )
             end
         end
 
-        if S.parameters.compensated
-            ShallowWaters.axb!(S.Diag.Tendencies.du_sum, -1, S.Diag.Tendencies.du_comp)
-            ShallowWaters.axb!(S.Diag.Tendencies.dv_sum, -1, S.Diag.Tendencies.dv_comp)
-            ShallowWaters.axb!(S.Diag.Tendencies.dη_sum, -1, S.Diag.Tendencies.dη_comp)
+        if model.S.parameters.compensated
+            ShallowWaters.axb!(model.S.Diag.Tendencies.du_sum, -1, model.S.Diag.Tendencies.du_comp)
+            ShallowWaters.axb!(model.S.Diag.Tendencies.dv_sum, -1, model.S.Diag.Tendencies.dv_comp)
+            ShallowWaters.axb!(model.S.Diag.Tendencies.dη_sum, -1, model.S.Diag.Tendencies.dη_comp)
 
-            ShallowWaters.axb!(S.Diag.RungeKutta.u0, 1, S.Diag.Tendencies.du_sum)
-            ShallowWaters.axb!(S.Diag.RungeKutta.v0, 1, S.Diag.Tendencies.dv_sum)
-            ShallowWaters.axb!(S.Diag.RungeKutta.η0, 1, S.Diag.Tendencies.dη_sum)
+            ShallowWaters.axb!(model.S.Diag.RungeKutta.u0, 1, model.S.Diag.Tendencies.du_sum)
+            ShallowWaters.axb!(model.S.Diag.RungeKutta.v0, 1, model.S.Diag.Tendencies.dv_sum)
+            ShallowWaters.axb!(model.S.Diag.RungeKutta.η0, 1, model.S.Diag.Tendencies.dη_sum)
 
             ShallowWaters.dambmc!(
-                S.Diag.Tendencies.du_comp,
-                S.Diag.RungeKutta.u0,
-                S.Prog.u,
-                S.Diag.Tendencies.du_sum
+                model.S.Diag.Tendencies.du_comp,
+                model.S.Diag.RungeKutta.u0,
+                model.S.Prog.u,
+                model.S.Diag.Tendencies.du_sum
             )
             ShallowWaters.dambmc!(
-                S.Diag.Tendencies.dv_comp,
-                S.Diag.RungeKutta.v0,
-                S.Prog.v,
-                S.Diag.Tendencies.dv_sum
+                model.S.Diag.Tendencies.dv_comp,
+                model.S.Diag.RungeKutta.v0,
+                model.S.Prog.v,
+                model.S.Diag.Tendencies.dv_sum
             )
             ShallowWaters.dambmc!(
-                S.Diag.Tendencies.dη_comp,
-                S.Diag.RungeKutta.η0,
-                S.Prog.η,
-                S.Diag.Tendencies.dη_sum
+                model.S.Diag.Tendencies.dη_comp,
+                model.S.Diag.RungeKutta.η0,
+                model.S.Prog.η,
+                model.S.Diag.Tendencies.dη_sum
             )
         end
 
         ShallowWaters.ghost_points!(
-            S.Diag.RungeKutta.u0,
-            S.Diag.RungeKutta.v0,
-            S.Diag.RungeKutta.η0,
-            S
+            model.S.Diag.RungeKutta.u0,
+            model.S.Diag.RungeKutta.v0,
+            model.S.Diag.RungeKutta.η0,
+            model.S
         )
 
-        u0rhs = S.Diag.PrognosticVarsRHS.u .= S.Diag.RungeKutta.u0
-        v0rhs = S.Diag.PrognosticVarsRHS.v .= S.Diag.RungeKutta.v0
-        η0rhs = S.Diag.PrognosticVarsRHS.η .= S.Diag.RungeKutta.η0
+        u0rhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Diag.RungeKutta.u0
+        v0rhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Diag.RungeKutta.v0
+        η0rhs = model.S.Diag.PrognosticVarsRHS.η .= model.S.Diag.RungeKutta.η0
 
-        if S.parameters.dynamics == "nonlinear" && S.grid.nstep_advcor > 0 && (i % S.grid.nstep_advcor) == 0
-            ShallowWaters.UVfluxes!(u0rhs, v0rhs, η0rhs, S.Diag, S)
-            ShallowWaters.advection_coriolis!(u0rhs, v0rhs, η0rhs, S.Diag, S)
+        if model.S.parameters.dynamics == "nonlinear" && model.S.grid.nstep_advcor > 0 && (i % model.S.grid.nstep_advcor) == 0
+            ShallowWaters.UVfluxes!(u0rhs, v0rhs, η0rhs, model.S.Diag, model.S)
+            ShallowWaters.advection_coriolis!(u0rhs, v0rhs, η0rhs, model.S.Diag, model.S)
         end
 
-        if (S.parameters.i % S.grid.nstep_diff) == 0
-        ShallowWaters.bottom_drag!(u0rhs, v0rhs, η0rhs, S.Diag, S)
-        ShallowWaters.diffusion!(u0rhs, v0rhs, S.Diag, S)
+        if (model.S.parameters.i % model.S.grid.nstep_diff) == 0
+        ShallowWaters.bottom_drag!(u0rhs, v0rhs, η0rhs, model.S.Diag, model.S)
+        ShallowWaters.diffusion!(u0rhs, v0rhs, model.S.Diag, model.S)
         ShallowWaters.add_drag_diff_tendencies!(
-            S.Diag.RungeKutta.u0,
-            S.Diag.RungeKutta.v0,
-            S.Diag,
-            S
+            model.S.Diag.RungeKutta.u0,
+            model.S.Diag.RungeKutta.v0,
+            model.S.Diag,
+            model.S
         )
         ShallowWaters.ghost_points_uv!(
-            S.Diag.RungeKutta.u0,
-            S.Diag.RungeKutta.v0,
-            S
+            model.S.Diag.RungeKutta.u0,
+            model.S.Diag.RungeKutta.v0,
+            model.S
         )
     end
 
-    t += S.grid.dtint
+    t += model.S.grid.dtint
 
-    u0rhs = S.Diag.PrognosticVarsRHS.u .= S.Diag.RungeKutta.u0
-    v0rhs = S.Diag.PrognosticVarsRHS.v .= S.Diag.RungeKutta.v0
-    ShallowWaters.tracer!(i, u0rhs, v0rhs, S.Prog, S.Diag, S)
+    u0rhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Diag.RungeKutta.u0
+    v0rhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Diag.RungeKutta.v0
+    ShallowWaters.tracer!(i, u0rhs, v0rhs, model.S.Prog, model.S.Diag, model.S)
 
     if i in model.data_steps
 
-        temp = ShallowWaters.PrognosticVars{S.parameters.Tprog}(ShallowWaters.remove_halo(S.Prog.u,
-        S.Prog.v,
-        S.Prog.η,
-        S.Prog.sst,S)...)
+        temp = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(model.S.Prog.u,
+        model.S.Prog.v,
+        model.S.Prog.η,
+        model.S.Prog.sst,model.S)...)
 
-        tempu = vec(temp.u)[model.data_spots]
+        tempuv = [vec(temp.u);vec(temp.v)]
 
-        model.J += sum((tempu - model.data[:, j]).^2)
+        model.J += sum((tempuv[model.data_spots] - model.data[:, model.j]).^2)
 
-        j += 1
+        model.j += 1
 
     end
 
-    # Copy back from substeps
-    copyto!(u,u0)
-    copyto!(v,v0)
-    copyto!(η,η0)
-
+    copyto!(model.S.Prog.u, model.S.Diag.RungeKutta.u0)
+    copyto!(model.S.Prog.v, model.S.Diag.RungeKutta.v0)
+    copyto!(model.S.Prog.η, model.S.Diag.RungeKutta.η0)
     end
 
     return model.J
@@ -303,191 +299,194 @@ end
 
 function exp1_integrate(model)
 
-    S = model.S
-
-    # setup
-    Diag = S.Diag
-    Prog = S.Prog
-
-    @unpack u,v,η,sst = Prog
-    @unpack u0,v0,η0 = Diag.RungeKutta
-    @unpack u1,v1,η1 = Diag.RungeKutta
-    @unpack du,dv,dη = Diag.Tendencies
-    @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
-    @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
-
-    @unpack um,vm = Diag.SemiLagrange
-
-    @unpack dynamics,RKo,RKs,tracer_advection = S.parameters
-    @unpack time_scheme,compensated = S.parameters
-    @unpack RKaΔt,RKbΔt = S.constants
-    @unpack Δt_Δ,Δt_Δs = S.constants
-
-    @unpack nt,dtint = S.grid
-    @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S.grid
-
     # calculate layer thicknesses for initial conditions
-    ShallowWaters.thickness!(Diag.VolumeFluxes.h,η,S.forcing.H)
-    ShallowWaters.Ix!(Diag.VolumeFluxes.h_u,Diag.VolumeFluxes.h)
-    ShallowWaters.Iy!(Diag.VolumeFluxes.h_v,Diag.VolumeFluxes.h)
-    ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
+    ShallowWaters.thickness!(model.S.Diag.VolumeFluxes.h, model.S.Prog.η, model.S.forcing.H)
+    ShallowWaters.Ix!(model.S.Diag.VolumeFluxes.h_u, model.S.Diag.VolumeFluxes.h)
+    ShallowWaters.Iy!(model.S.Diag.VolumeFluxes.h_v, model.S.Diag.VolumeFluxes.h)
+    ShallowWaters.Ixy!(model.S.Diag.Vorticity.h_q, model.S.Diag.VolumeFluxes.h)
 
     # calculate PV terms for initial conditions
-    urhs = Diag.PrognosticVarsRHS.u .= S.Prog.u
-    vrhs = Diag.PrognosticVarsRHS.v .= S.Prog.v
-    ηrhs = Diag.PrognosticVarsRHS.η .= S.Prog.η
+    urhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Prog.u
+    vrhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Prog.v
+    ηrhs = model.S.Diag.PrognosticVarsRHS.η .= model.S.Prog.η
 
-    ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S)
-    ShallowWaters.PVadvection!(Diag,S)
+    ShallowWaters.advection_coriolis!(urhs, vrhs, ηrhs, model.S.Diag, model.S)
+    ShallowWaters.PVadvection!(model.S.Diag, model.S)
 
     # propagate initial conditions
-    copyto!(u0,u)
-    copyto!(v0,v)
-    copyto!(η0,η)
+    copyto!(model.S.Diag.RungeKutta.u0, model.S.Prog.u)
+    copyto!(model.S.Diag.RungeKutta.v0, model.S.Prog.v)
+    copyto!(model.S.Diag.RungeKutta.η0, model.S.Prog.η)
 
     # store initial conditions of sst for relaxation
-    copyto!(Diag.SemiLagrange.sst_ref,sst)
+    copyto!(model.S.Diag.SemiLagrange.sst_ref, model.S.Prog.sst)
 
     # run integration loop with checkpointing
     model.j = 1
+    for model.i = 1:model.S.grid.nt
 
-    for model.i = 1:S.grid.nt
-
-        Diag = S.Diag
-        Prog = S.Prog
-    
-        @unpack u,v,η,sst = Prog
-        @unpack u0,v0,η0 = Diag.RungeKutta
-        @unpack u1,v1,η1 = Diag.RungeKutta
-        @unpack du,dv,dη = Diag.Tendencies
-        @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
-        @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
-    
-        @unpack um,vm = Diag.SemiLagrange
-    
-        @unpack dynamics,RKo,RKs,tracer_advection = S.parameters
-        @unpack time_scheme,compensated = S.parameters
-        @unpack RKaΔt,RKbΔt = S.constants
-        @unpack Δt_Δ,Δt_Δs = S.constants
-    
-        @unpack nt,dtint = S.grid
-        @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S.grid
-        t = model.t
+        t = model.S.t
         i = model.i
 
         # ghost point copy for boundary conditions
-        ShallowWaters.ghost_points!(u,v,η,S)
-        copyto!(u1,u)
-        copyto!(v1,v)
-        copyto!(η1,η)
+        ShallowWaters.ghost_points!(model.S.Prog.u, model.S.Prog.v, model.S.Prog.η, model.S)
+        copyto!(model.S.Diag.RungeKutta.u1, model.S.Prog.u)
+        copyto!(model.S.Diag.RungeKutta.v1, model.S.Prog.v)
+        copyto!(model.S.Diag.RungeKutta.η1, model.S.Prog.η)
 
-        if compensated
-            fill!(du_sum,zero(Tprog))
-            fill!(dv_sum,zero(Tprog))
-            fill!(dη_sum,zero(Tprog))
+        if model.S.parameters.compensated
+            fill!(model.S.Diag.Tendencies.du_sum, zero(model.S.parameters.Tprog))
+            fill!(model.S.Diag.Tendencies.dv_sum, zero(model.S.parameters.Tprog))
+            fill!(model.S.Diag.Tendencies.dη_sum, zero(model.S.parameters.Tprog))
         end
 
-        for rki = 1:RKo
+        for rki = 1:model.S.parameters.RKo
             if rki > 1
-                ShallowWaters.ghost_points!(u1,v1,η1,S)
+                ShallowWaters.ghost_points!(
+                    model.S.Diag.RungeKutta.u1,
+                    model.S.Diag.RungeKutta.v1,
+                    model.S.Diag.RungeKutta.η1,
+                    model.S
+                )
             end
 
             # type conversion for mixed precision
-            u1rhs = Diag.PrognosticVarsRHS.u .= Diag.RungeKutta.u1
-            v1rhs = Diag.PrognosticVarsRHS.v .= Diag.RungeKutta.v1
-            η1rhs = Diag.PrognosticVarsRHS.η .= Diag.RungeKutta.η1
+            u1rhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Diag.RungeKutta.u1
+            v1rhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Diag.RungeKutta.v1
+            η1rhs = model.S.Diag.PrognosticVarsRHS.η .= model.S.Diag.RungeKutta.η1
 
-            ShallowWaters.rhs!(u1rhs,v1rhs,η1rhs,Diag,S,t)          # momentum only
-            ShallowWaters.continuity!(u1rhs,v1rhs,η1rhs,Diag,S,t)   # continuity equation
+            ShallowWaters.rhs!(u1rhs, v1rhs, η1rhs, model.S.Diag, model.S, t)          # momentum only
+            ShallowWaters.continuity!(u1rhs, v1rhs, η1rhs, model.S.Diag, model.S, t)   # continuity equation
 
-            if rki < RKo
-                ShallowWaters.caxb!(u1,u,RKbΔt[rki],du)   #u1 .= u .+ RKb[rki]*Δt*du
-                ShallowWaters.caxb!(v1,v,RKbΔt[rki],dv)   #v1 .= v .+ RKb[rki]*Δt*dv
-                ShallowWaters.caxb!(η1,η,RKbΔt[rki],dη)   #η1 .= η .+ RKb[rki]*Δt*dη
+            if rki < model.S.parameters.RKo
+                ShallowWaters.caxb!(
+                    model.S.Diag.RungeKutta.u1,
+                    model.S.Prog.u,
+                    model.S.constants.RKbΔt[rki],
+                    model.S.Diag.Tendencies.du
+                )
+                ShallowWaters.caxb!(
+                    model.S.Diag.RungeKutta.v1,
+                    model.S.Prog.v,
+                    model.S.constants.RKbΔt[rki],
+                    model.S.Diag.Tendencies.dv
+                )
+                ShallowWaters.caxb!(
+                    model.S.Diag.RungeKutta.η1,
+                    model.S.Prog.η,
+                    model.S.constants.RKbΔt[rki],
+                    model.S.Diag.Tendencies.dη
+                )
             end
 
-            if compensated      # accumulate tendencies
-                ShallowWaters.axb!(du_sum,RKaΔt[rki],du)
-                ShallowWaters.axb!(dv_sum,RKaΔt[rki],dv)
-                ShallowWaters.axb!(dη_sum,RKaΔt[rki],dη)
-            else    # sum RK-substeps on the go
-                ShallowWaters.axb!(u0,RKaΔt[rki],du)          #u0 .+= RKa[rki]*Δt*du
-                ShallowWaters.axb!(v0,RKaΔt[rki],dv)          #v0 .+= RKa[rki]*Δt*dv
-                ShallowWaters.axb!(η0,RKaΔt[rki],dη)          #η0 .+= RKa[rki]*Δt*dη
+            if model.S.parameters.compensated
+                ShallowWaters.axb!(model.S.Diag.Tendencies.du_sum, model.S.constants.RKaΔt[rki], model.S.Diag.Tendencies.du)
+                ShallowWaters.axb!(model.S.Diag.Tendencies.dv_sum, model.S.constants.RKaΔt[rki], model.S.Diag.Tendencies.dv)
+                ShallowWaters.axb!(model.S.Diag.Tendencies.dη_sum, model.S.constants.RKaΔt[rki], model.S.Diag.Tendencies.dη)
+            else
+                ShallowWaters.axb!(
+                    model.S.Diag.RungeKutta.u0,
+                    model.S.constants.RKaΔt[rki],
+                    model.S.Diag.Tendencies.du
+                )
+                ShallowWaters.axb!(
+                    model.S.Diag.RungeKutta.v0,
+                    model.S.constants.RKaΔt[rki],
+                    model.S.Diag.Tendencies.dv
+                )
+                ShallowWaters.axb!(
+                    model.S.Diag.RungeKutta.η0,
+                    model.S.constants.RKaΔt[rki],
+                    model.S.Diag.Tendencies.dη
+                )
             end
         end
 
-        if compensated
-            # add compensation term to total tendency
-            ShallowWaters.axb!(du_sum,-1,du_comp)
-            ShallowWaters.axb!(dv_sum,-1,dv_comp)
-            ShallowWaters.axb!(dη_sum,-1,dη_comp)
+        if model.S.parameters.compensated
+            ShallowWaters.axb!(model.S.Diag.Tendencies.du_sum, -1, model.S.Diag.Tendencies.du_comp)
+            ShallowWaters.axb!(model.S.Diag.Tendencies.dv_sum, -1, model.S.Diag.Tendencies.dv_comp)
+            ShallowWaters.axb!(model.S.Diag.Tendencies.dη_sum, -1, model.S.Diag.Tendencies.dη_comp)
 
-            ShallowWaters.axb!(u0,1,du_sum)   # update prognostic variable with total tendency
-            ShallowWaters.axb!(v0,1,dv_sum)
-            ShallowWaters.axb!(η0,1,dη_sum)
+            ShallowWaters.axb!(model.S.Diag.RungeKutta.u0, 1, model.S.Diag.Tendencies.du_sum)
+            ShallowWaters.axb!(model.S.Diag.RungeKutta.v0, 1, model.S.Diag.Tendencies.dv_sum)
+            ShallowWaters.axb!(model.S.Diag.RungeKutta.η0, 1, model.S.Diag.Tendencies.dη_sum)
 
-            ShallowWaters.dambmc!(du_comp,u0,u,du_sum)    # compute new compensation
-            ShallowWaters.dambmc!(dv_comp,v0,v,dv_sum)
-            ShallowWaters.dambmc!(dη_comp,η0,η,dη_sum)
+            ShallowWaters.dambmc!(
+                model.S.Diag.Tendencies.du_comp,
+                model.S.Diag.RungeKutta.u0,
+                model.S.Prog.u,
+                model.S.Diag.Tendencies.du_sum
+            )
+            ShallowWaters.dambmc!(
+                model.S.Diag.Tendencies.dv_comp,
+                model.S.Diag.RungeKutta.v0,
+                model.S.Prog.v,
+                model.S.Diag.Tendencies.dv_sum
+            )
+            ShallowWaters.dambmc!(
+                model.S.Diag.Tendencies.dη_comp,
+                model.S.Diag.RungeKutta.η0,
+                model.S.Prog.η,
+                model.S.Diag.Tendencies.dη_sum
+            )
         end
 
+        ShallowWaters.ghost_points!(
+            model.S.Diag.RungeKutta.u0,
+            model.S.Diag.RungeKutta.v0,
+            model.S.Diag.RungeKutta.η0,
+            model.S
+        )
 
-        ShallowWaters.ghost_points!(u0,v0,η0,S)
+        u0rhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Diag.RungeKutta.u0
+        v0rhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Diag.RungeKutta.v0
+        η0rhs = model.S.Diag.PrognosticVarsRHS.η .= model.S.Diag.RungeKutta.η0
 
-        # type conversion for mixed precision
-        u0rhs = Diag.PrognosticVarsRHS.u .= Diag.RungeKutta.u0
-        v0rhs = Diag.PrognosticVarsRHS.v .= Diag.RungeKutta.v0
-        η0rhs = Diag.PrognosticVarsRHS.η .= Diag.RungeKutta.η0
-
-        # ADVECTION and CORIOLIS TERMS
-        # although included in the tendency of every RK substep,
-        # only update every nstep_advcor steps if nstep_advcor > 0
-        if dynamics == "nonlinear" && nstep_advcor > 0 && (i % nstep_advcor) == 0
-            ShallowWaters.UVfluxes!(u0rhs,v0rhs,η0rhs,Diag,S)
-            ShallowWaters.advection_coriolis!(u0rhs,v0rhs,η0rhs,Diag,S)
+        if model.S.parameters.dynamics == "nonlinear" && model.S.grid.nstep_advcor > 0 && (i % model.S.grid.nstep_advcor) == 0
+            ShallowWaters.UVfluxes!(u0rhs, v0rhs, η0rhs, model.S.Diag, model.S)
+            ShallowWaters.advection_coriolis!(u0rhs, v0rhs, η0rhs, model.S.Diag, model.S)
         end
 
-        # DIFFUSIVE TERMS - SEMI-IMPLICIT EULER
-        # use u0 = u^(n+1) to evaluate tendencies, add to u0 = u^n + rhs
-        # evaluate only every nstep_diff time steps
-        if (S.parameters.i % nstep_diff) == 0
-            ShallowWaters.bottom_drag!(u0rhs,v0rhs,η0rhs,Diag,S)
-            ShallowWaters.diffusion!(u0rhs,v0rhs,Diag,S)
-            ShallowWaters.add_drag_diff_tendencies!(u0,v0,Diag,S)
-            ShallowWaters.ghost_points_uv!(u0,v0,S)
-        end
+        if (model.S.parameters.i % model.S.grid.nstep_diff) == 0
+        ShallowWaters.bottom_drag!(u0rhs, v0rhs, η0rhs, model.S.Diag, model.S)
+        ShallowWaters.diffusion!(u0rhs, v0rhs, model.S.Diag, model.S)
+        ShallowWaters.add_drag_diff_tendencies!(
+            model.S.Diag.RungeKutta.u0,
+            model.S.Diag.RungeKutta.v0,
+            model.S.Diag,
+            model.S
+        )
+        ShallowWaters.ghost_points_uv!(
+            model.S.Diag.RungeKutta.u0,
+            model.S.Diag.RungeKutta.v0,
+            model.S
+        )
+    end
 
-        t += dtint
+    t += model.S.grid.dtint
 
-        # TRACER ADVECTION
-        u0rhs = Diag.PrognosticVarsRHS.u .= Diag.RungeKutta.u0
-        v0rhs = Diag.PrognosticVarsRHS.v .= Diag.RungeKutta.v0
-        ShallowWaters.tracer!(i, u0rhs, v0rhs, S.Prog, Diag, S)
+    u0rhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Diag.RungeKutta.u0
+    v0rhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Diag.RungeKutta.v0
+    ShallowWaters.tracer!(i, u0rhs, v0rhs, model.S.Prog, model.S.Diag, model.S)
 
-        # Cost function evaluation
+    if i in model.data_steps
 
-        if i in model.data_steps
+        temp = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(model.S.Prog.u,
+        model.S.Prog.v,
+        model.S.Prog.η,
+        model.S.Prog.sst,model.S)...)
 
-            temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S.Prog.u,
-            S.Prog.v,
-            S.Prog.η,
-            S.Prog.sst,S)...)
+        tempuv = [vec(temp.u);vec(temp.v)]
 
-            tempu = u_mat_to_vec(temp.u)
-            tempv = v_mat_to_vec(temp.v)
+        model.J += sum((tempuv[model.data_spots] - model.data[:, model.j]).^2)
 
-            model.J += sum(([tempu;tempv][model.data_spots] - model.data[:, model.j]).^2)
+        model.j += 1
 
-            model.j += 1
+    end
 
-        end
-
-        # Copy back from substeps
-        copyto!(u,u0)
-        copyto!(v,v0)
-        copyto!(η,η0)
-
+    copyto!(model.S.Prog.u, model.S.Diag.RungeKutta.u0)
+    copyto!(model.S.Prog.v, model.S.Diag.RungeKutta.v0)
+    copyto!(model.S.Prog.η, model.S.Diag.RungeKutta.η0)
     end
 
     return model.J
@@ -527,15 +526,13 @@ function NLPModels.obj(model, param_guess)
         current += sz
     end
 
-    J = exp1_integrate(model)
-
-    return J
+    return exp1_integrate(model)
 
 end
 
 function NLPModels.grad!(model, param_guess, G)
 
-    P = ShallowWaters.Parameter(T=Float64;
+    P = ShallowWaters.Parameter(T=model.S.parameters.T;
         output=false,
         L_ratio=1,
         g=9.81,
@@ -555,11 +552,11 @@ function NLPModels.grad!(model, param_guess, G)
     )
     model.S = ShallowWaters.model_setup(P)
     model.J = 0.0
+    model.t = 0.0
     model.j = 1
-    model.t = 1
 
     current = 1
-    for m in (S.Prog.u, S.Prog.v, S.Prog.η)
+    for m in (model.S.Prog.u, model.S.Prog.v, model.S.Prog.η)
         sz = prod(size(m))
         m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
         current += sz
@@ -578,12 +575,12 @@ function NLPModels.grad!(model, param_guess, G)
 
     dmodel = Enzyme.make_zero(model)
 
-    autodiff(set_runtime_activity(Enzyme.ReverseWithPrimal),
-        exp1_cpintegrate,
+    J = autodiff(
+        set_runtime_activity(Enzyme.ReverseWithPrimal),
+        exp1_integrate,
         Active,
-        Duplicated(model, dmodel),
-        Const(revolve)
-    )
+        Duplicated(model, dmodel)
+    )[2]
 
     # derivative of loss with respect to initial condition
     G .= [vec(dmodel.S.Prog.u); vec(dmodel.S.Prog.v); vec(dmodel.S.Prog.η)]
