@@ -1,13 +1,27 @@
-mutable struct exp2hr_model{T}
-    S::ShallowWaters.ModelSetup{T,T}        # model structure
+mutable struct exp2_hradj_model{T, S} <: AbstractNLPModel{T,S}
+    meta::NLPModelMeta{T, S}
+    counters::Counters
+    S::ShallowWaters.ModelSetup{T,T}        # model struct for adjoint
     data::Array{T, 2}                       # data to be assimilated
-    data_spots::Array{Int, 1}               # where data is located, grid coordinates
     data_steps::StepRange{Int, Int}         # when data is assimilated
+    data_spots::Array{Int, 1}               # where data is located, grid coordinates
     J::Float64                              # objective value
     j::Int                                  # for keeping track of location in data
     i::Int                                  # timestep iterator
     t::Int64                                # model time
 end
+
+mutable struct exp2_hrekf_model{T}
+    S::ShallowWaters.ModelSetup{T,T}        # model struct for adjoint
+    N::Int                                  # number of ensemble members
+    data::Array{T, 2}                       # data to be assimilated
+    sigma_initcond::T
+    sigma_data::T
+    data_steps::StepRange{Int, Int}         # when data is assimilated
+    data_spots::Array{Int, 1}               # where data is located, grid coordinates
+    j::Int                                  # for keeping track of location in data
+end
+
 
 function exp2hr_coarse_grain(u_hr, v_hr, η_hr, nx_hr, ny_hr, S_lr)
 

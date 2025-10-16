@@ -595,7 +595,7 @@ function run_exp1()
     N = 10
     sigma_data = 0.01
     sigma_initcond = 0.02
-    data_steps = 220:220:6733
+    data_steps = 225:224:Ndays*225
 
     xu = 30:10:100
     yu = 40:10:100
@@ -615,7 +615,7 @@ function run_exp1()
     # run the adjoint optimization
     qn_options = MadNLP.QuasiNewtonOptions(; max_history=200)
     result = madnlp(
-        nlp;
+        adj_model;
         # linear_solver=LapackCPUSolver,
         hessian_approximation=MadNLP.CompactLBFGS,
         quasi_newton_options=qn_options
@@ -632,7 +632,7 @@ function run_exp1()
     end
     _, states_adj = exp1_generate_data(S_adj, data_steps, data_spots, sigma_data)
 
-    return ekf_avgu, ekf_avgv, G, dS, data, true_states, result, S_adj, states_adj
+    return ekf_avgu, ekf_avgv, G, dS, data, true_states, result, S_adj, states_adj, S_pred
 
 end
 
