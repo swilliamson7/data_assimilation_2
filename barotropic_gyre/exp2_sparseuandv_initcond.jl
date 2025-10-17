@@ -338,7 +338,7 @@ end
 
 function exp2_integrate(model)
 
-     # calculate layer thicknesses for initial conditions
+    # calculate layer thicknesses for initial conditions
     ShallowWaters.thickness!(model.S.Diag.VolumeFluxes.h, model.S.Prog.η, model.S.forcing.H)
     ShallowWaters.Ix!(model.S.Diag.VolumeFluxes.h_u, model.S.Diag.VolumeFluxes.h)
     ShallowWaters.Iy!(model.S.Diag.VolumeFluxes.h_v, model.S.Diag.VolumeFluxes.h)
@@ -509,7 +509,7 @@ function exp2_integrate(model)
     ShallowWaters.tracer!(i, u0rhs, v0rhs, model.S.Prog, model.S.Diag, model.S)
 
     if i in model.data_steps
-        temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(
+        temp = ShallowWaters.PrognosticVars{model.S.parameters.T}(ShallowWaters.remove_halo(
             model.S.Prog.u,
             model.S.Prog.v,
             model.S.Prog.η,
@@ -656,7 +656,7 @@ function NLPModels.grad!(model, param_guess, G)
 
     # if we want to use checkpointing
     snaps = Int(floor(sqrt(model.S.grid.nt)))
-    revolve = Revolve{exp2_adj_model}(model.S.grid.nt,
+    revolve = Revolve(model.S.grid.nt,
         snaps;
         verbose=0,
         gc=true,
@@ -669,10 +669,10 @@ function NLPModels.grad!(model, param_guess, G)
 
     J = autodiff(
         set_runtime_activity(Enzyme.ReverseWithPrimal),
-        exp2_cpintegrate,
+        exp2_integrate,
         Active,
-        Duplicated(model, dmodel),
-        Const(revolve)
+        Duplicated(model, dmodel)
+        # Const(revolve)
     )[2]
 
     # derivative of loss with respect to initial condition
@@ -684,7 +684,7 @@ end
 
 function exp2_initialcond_uvdata()
 
-    Ndays = 30
+    Ndays = 10
     N = 20
     sigma_data = 0.0000001                # this and the init cond are what the result from optimization used, be careful in adjusting
     sigma_initcond = 0.001

@@ -1,221 +1,146 @@
-mutable struct exp3_model{T}
-    S::ShallowWaters.ModelSetup{T, T}       # model structure
-    data::Array{T,2}                        # computed data
-    data_spots::Array{Int, 1}               # location of data points spatially
-    data_steps::StepRange{Int, Int}         # location of data points temporally
-    J::Float64                              # objective function value
+mutable struct exp3_adj_model{T, S} <: AbstractNLPModel{T,S}
+    meta::NLPModelMeta{T, S}
+    counters::Counters
+    S::ShallowWaters.ModelSetup{T,T}        # model struct for adjoint
+    data::Array{T, 2}                       # data to be assimilated
+    data_steps::StepRange{Int, Int}         # when data is assimilated
+    data_spots::Array{Int, 1}               # where data is located, grid coordinates
+    J::Float64                              # objective value
     j::Int                                  # for keeping track of location in data
     i::Int                                  # timestep iterator
     t::Int64                                # model time
 end
 
-function exp3_generate_data(S_true, data_steps, data_spots, sigma_data; compute_freq=false)
+mutable struct exp3_ekf_model{T}
+    S::ShallowWaters.ModelSetup{T,T}        # model struct for adjoint
+    N::Int                                  # number of ensemble members
+    data::Array{T, 2}                       # data to be assimilated
+    sigma_initcond::T
+    sigma_data::T
+    data_steps::StepRange{Int, Int}         # when data is assimilated
+    data_spots::Array{Int, 1}               # where data is located, grid coordinates
+    j::Int                                  # for keeping track of location in data
+end
 
-    data = Float32.(zeros(length(data_spots), length(data_steps)))
-    true_states = []
+function exp3_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, data_spots)
 
-    # setup that happens prior to the actual integration
-    Diag = S_true.Diag
-    Prog = S_true.Prog
+    P_pred = ShallowWaters.Parameter(T=T;
+        output=false,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        tracer_advection=false,
+        tracer_relaxation=false,
+        seasonal_wind_x=false,
+        topography="flat",
+        bc="nonperiodic",
+        α=2,
+        nx=128,
+        Ndays=Ndays,
+        initial_cond="ncfile",
+        initpath="./data_files_forkf/128_spinup_noforcing/"
+    )
 
-    @unpack u,v,η,sst = Prog
-    @unpack u0,v0,η0 = Diag.RungeKutta
-    @unpack u1,v1,η1 = Diag.RungeKutta
-    @unpack du,dv,dη = Diag.Tendencies
-    @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
-    @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
+    S_true = ShallowWaters.model_setup(P_pred)
 
-    @unpack um,vm = Diag.SemiLagrange
+    data, true_states = exp2_generate_data(S_true, data_steps, data_spots, sigma_data)
 
-    @unpack dynamics,RKo,RKs,tracer_advection = S_true.parameters
-    @unpack time_scheme,compensated = S_true.parameters
-    @unpack RKaΔt,RKbΔt = S_true.constants
-    @unpack Δt_Δ,Δt_Δs = S_true.constants
+    S_pred = ShallowWaters.model_setup(P_pred)
 
-    @unpack nt,dtint = S_true.grid
-    @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S_true.grid
+    # perturb wind stress amplitude
+    S_pred.parameters.Fx0 = .0001 * S_true.parameters.Fx0
 
-    freqpoweru = []
-    freqpowerv = []
+    Prog_pred = ShallowWaters.PrognosticVars{T}(ShallowWaters.remove_halo(S_pred.Prog.u,
+        S_pred.Prog.v,
+        S_pred.Prog.η,
+        S_pred.Prog.sst,
+        S_pred)...
+    )
 
-    # calculate layer thicknesses for initial conditions
-    ShallowWaters.thickness!(Diag.VolumeFluxes.h,η,S_true.forcing.H)
-    ShallowWaters.Ix!(Diag.VolumeFluxes.h_u,Diag.VolumeFluxes.h)
-    ShallowWaters.Iy!(Diag.VolumeFluxes.h_v,Diag.VolumeFluxes.h)
-    ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
+    # perturb initial conditions from those seen by the "true" model (create incorrect initial conditions)
+    # trying to do this by perturbing the high wavelengths instead of doing a smooth perturbation with one 
+    # standard deviation
+    # I'm (somewhat arbitrarily) choosing 1 ≤ n, m ≤ 20 for the wavenumbers
+    upert = zeros(size(Prog_pred.u))
+    vpert = zeros(size(Prog_pred.v))
+    etapert = zeros(size(Prog_pred.η))
 
-    # calculate PV terms for initial conditions
-    urhs = Diag.PrognosticVarsRHS.u .= u
-    vrhs = Diag.PrognosticVarsRHS.v .= v
-    ηrhs = Diag.PrognosticVarsRHS.η .= η
-
-    ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S_true)
-    ShallowWaters.PVadvection!(Diag,S_true)
-
-    # propagate initial conditions
-    copyto!(u0,u)
-    copyto!(v0,v)
-    copyto!(η0,η)
-
-    # store initial conditions of sst for relaxation
-    copyto!(Diag.SemiLagrange.sst_ref,sst)
-    j = 1
-
-    for t = 1:S_true.grid.nt
-
-        Diag = S_true.Diag
-        Prog = S_true.Prog
-    
-        @unpack u,v,η,sst = Prog
-        @unpack u0,v0,η0 = Diag.RungeKutta
-        @unpack u1,v1,η1 = Diag.RungeKutta
-        @unpack du,dv,dη = Diag.Tendencies
-        @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
-        @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
-    
-        @unpack um,vm = Diag.SemiLagrange
-    
-        @unpack dynamics,RKo,RKs,tracer_advection = S_true.parameters
-        @unpack time_scheme,compensated = S_true.parameters
-        @unpack RKaΔt,RKbΔt = S_true.constants
-        @unpack Δt_Δ,Δt_Δs = S_true.constants
-    
-        @unpack nt,dtint = S_true.grid
-        @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S_true.grid
-        i = S_true.parameters.i
-
-        # ghost point copy for boundary conditions
-        ShallowWaters.ghost_points!(u,v,η,S_true)
-        copyto!(u1,u)
-        copyto!(v1,v)
-        copyto!(η1,η)
-
-        if compensated
-            fill!(du_sum,zero(Tprog))
-            fill!(dv_sum,zero(Tprog))
-            fill!(dη_sum,zero(Tprog))
-        end
-
-        for rki = 1:RKo
-            if rki > 1
-                ShallowWaters.ghost_points!(u1,v1,η1,S_true)
-            end
-
-            # type conversion for mixed precision
-            u1rhs = Diag.PrognosticVarsRHS.u .= u1
-            v1rhs = Diag.PrognosticVarsRHS.v .= v1
-            η1rhs = Diag.PrognosticVarsRHS.η .= η1
-
-            ShallowWaters.rhs!(u1rhs,v1rhs,η1rhs,Diag,S_true,t)          # momentum only
-            ShallowWaters.continuity!(u1rhs,v1rhs,η1rhs,Diag,S_true,t)   # continuity equation
-
-            if rki < RKo
-                ShallowWaters.caxb!(u1,u,RKbΔt[rki],du)   #u1 .= u .+ RKb[rki]*Δt*du
-                ShallowWaters.caxb!(v1,v,RKbΔt[rki],dv)   #v1 .= v .+ RKb[rki]*Δt*dv
-                ShallowWaters.caxb!(η1,η,RKbΔt[rki],dη)   #η1 .= η .+ RKb[rki]*Δt*dη
-            end
-
-            if compensated      # accumulate tendencies
-                ShallowWaters.axb!(du_sum,RKaΔt[rki],du)
-                ShallowWaters.axb!(dv_sum,RKaΔt[rki],dv)
-                ShallowWaters.axb!(dη_sum,RKaΔt[rki],dη)
-            else    # sum RK-substeps on the go
-                ShallowWaters.axb!(u0,RKaΔt[rki],du)          #u0 .+= RKa[rki]*Δt*du
-                ShallowWaters.axb!(v0,RKaΔt[rki],dv)          #v0 .+= RKa[rki]*Δt*dv
-                ShallowWaters.axb!(η0,RKaΔt[rki],dη)          #η0 .+= RKa[rki]*Δt*dη
-            end
-        end
-
-        if compensated
-            # add compensation term to total tendency
-            ShallowWaters.axb!(du_sum,-1,du_comp)
-            ShallowWaters.axb!(dv_sum,-1,dv_comp)
-            ShallowWaters.axb!(dη_sum,-1,dη_comp)
-
-            ShallowWaters.axb!(u0,1,du_sum)   # update prognostic variable with total tendency
-            ShallowWaters.axb!(v0,1,dv_sum)
-            ShallowWaters.axb!(η0,1,dη_sum)
-
-            ShallowWaters.dambmc!(du_comp,u0,u,du_sum)    # compute new compensation
-            ShallowWaters.dambmc!(dv_comp,v0,v,dv_sum)
-            ShallowWaters.dambmc!(dη_comp,η0,η,dη_sum)
-        end
-
-        ShallowWaters.ghost_points!(u0,v0,η0,S_true)
-
-        # type conversion for mixed precision
-        u0rhs = Diag.PrognosticVarsRHS.u .= u0
-        v0rhs = Diag.PrognosticVarsRHS.v .= v0
-        η0rhs = Diag.PrognosticVarsRHS.η .= η0
-
-        # ADVECTION and CORIOLIS TERMS
-        # although included in the tendency of every RK substep,
-        # only update every nstep_advcor steps if nstep_advcor > 0
-        if dynamics == "nonlinear" && nstep_advcor > 0 && (i % nstep_advcor) == 0
-            ShallowWaters.UVfluxes!(u0rhs,v0rhs,η0rhs,Diag,S_true)
-            ShallowWaters.advection_coriolis!(u0rhs,v0rhs,η0rhs,Diag,S_true)
-        end
-
-        # DIFFUSIVE TERMS - SEMI-IMPLICIT EULER
-        # use u0 = u^(n+1) to evaluate tendencies, add to u0 = u^n + rhs
-        # evaluate only every nstep_diff time steps
-        if (S_true.parameters.i % nstep_diff) == 0
-            ShallowWaters.bottom_drag!(u0rhs,v0rhs,η0rhs,Diag,S_true)
-            ShallowWaters.diffusion!(u0rhs,v0rhs,Diag,S_true)
-            ShallowWaters.add_drag_diff_tendencies!(u0,v0,Diag,S_true)
-            ShallowWaters.ghost_points_uv!(u0,v0,S_true)
-        end
-
-        # TRACER ADVECTION
-        u0rhs = Diag.PrognosticVarsRHS.u .= u0
-        v0rhs = Diag.PrognosticVarsRHS.v .= v0
-        ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
-
-        # storing daily states for the "true" values
-        if t ∈ 225:225:S_true.grid.nt
-            temp1 = ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
-                ShallowWaters.remove_halo(u,v,η,sst,S_true)...)
-            push!(true_states, temp1)
-        end
-
-        # generating the data
-        if t ∈ S_true.parameters.data_steps
-            tempu = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
-                ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).u)
-            tempv = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
-                ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).v)
-
-            data[:, j] = Float32.([tempu; tempv][Int.(data_spots)] .+ sigma_data .* randn(length(data_spots)))
-            j += 1
-        end
-
-        if compute_freq
-
-            if t ∈ 10:10:S_true.grid.nt
-
-                tempu = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
-                    ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).u)
-                tempv = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
-                    ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).v)
-
-                push!(freqpoweru, periodogram(states_adj[end].u; radialavg=true))
-                push!(freqpowerv, periodogram(states_adj[end].v; radialavg=true))
-
+    for n = 1:5
+        for m = 1:5
+            urand = randn(4)
+            vrand = randn(4)
+            for k = 1:127
+                for j = 1:128
+                    upert[k,j] += sigma_initcond * urand[1] * cos((pi * n / 127) * k)*cos(pi * m / 128 * j)
+                        + sigma_initcond * urand[2] * sin((pi * n / 127) * k)*cos(pi * m / 128 * j)
+                        + sigma_initcond * urand[3] * cos((pi * n / 127) * k)*sin(pi * m / 128 * j)
+                        + sigma_initcond * urand[4] * sin((pi * n / 127) * k)*sin(pi * m / 128 * j)
+                    vpert[j,k] += sigma_initcond * vrand[1] * cos(pi * n / 128 * j) * cos(pi * m / 127 * k)
+                        + sigma_initcond * vrand[2] * cos(pi * n / 128 * j) * sin(pi * m / 127 * k)
+                        + sigma_initcond * vrand[3] * sin(pi * n / 128 * j) * cos(pi * m / 127 * k)
+                        + sigma_initcond * vrand[4] * sin(pi * n / 128 * j) * sin(pi * m / 127 * k)
+                end
             end
 
         end
-
-        # Copy back from substeps
-        copyto!(u,u0)
-        copyto!(v,v0)
-        copyto!(η,η0)
-
-        t += dtint
-
     end
 
-    return data, true_states
+    for n = 1:5
+        for m = 1:5
+            etarand = randn(4)
+            for k = 1:128
+                for j = 1:128
+                    etapert[k,j] += sigma_initcond * etarand[1] * cos((pi * n / 128) * k)*cos(pi * m / 128 * j)
+                        + sigma_initcond * etarand[2] * cos((pi * n / 128) * k)*sin(pi * m / 128 * j)
+                        + sigma_initcond * etarand[3] * sin((pi * n / 128) * k)*cos(pi * m / 128 * j)
+                        + sigma_initcond * etarand[4] * sin((pi * n / 128) * k)*sin(pi * m / 128 * j)
+                end
+            end
+        end
+    end
 
+    Prog_pred.u = Prog_pred.u + upert
+    Prog_pred.v = Prog_pred.v + vpert
+    Prog_pred.η = Prog_pred.η + etapert
+    
+    uic,vic,etaic = ShallowWaters.add_halo(Prog_pred.u,Prog_pred.v,Prog_pred.η,Prog_pred.sst,S_pred)
+    S_pred.Prog.u = uic
+    S_pred.Prog.v = vic
+    S_pred.Prog.η = etaic
+
+    param_guess = [vec(uic); vec(vic); vec(etaic)]
+
+    Skf = deepcopy(S_pred)
+    Sadj = deepcopy(S_pred)
+
+    meta = NLPModelMeta(length(param_guess); ncon=0, nnzh=0,x0=param_guess)
+    counters = Counters()
+
+    adj_model = exp2_adj_model{T, typeof(param_guess)}(meta,
+        Counters(),
+        Sadj,
+        data,
+        data_steps,
+        data_spots,
+        0.0,
+        1,
+        1,
+        0
+    )
+
+    ekf_model = exp2_ekf_model{T}(
+        Skf,
+        N,
+        data,
+        sigma_initcond,
+        sigma_data,
+        data_steps,
+        data_spots,
+        1
+    )
+    return adj_model, ekf_model, param_guess, S_pred, P_pred, true_states
 end
 
 function exp3_cpintegrate(chkp, scheme)::Float64
@@ -422,198 +347,206 @@ function exp3_cpintegrate(chkp, scheme)::Float64
 
 end
 
-function exp3_integrate(chkp)
-
-    # setup
-    S = chkp.S
-    Diag = S.Diag
-    Prog = S.Prog
-
-    @unpack u,v,η,sst = Prog
-    @unpack u0,v0,η0 = Diag.RungeKutta
-    @unpack u1,v1,η1 = Diag.RungeKutta
-    @unpack du,dv,dη = Diag.Tendencies
-    @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
-    @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
-
-    @unpack um,vm = Diag.SemiLagrange
-
-    @unpack dynamics,RKo,RKs,tracer_advection = S.parameters
-    @unpack time_scheme,compensated = S.parameters
-    @unpack RKaΔt,RKbΔt = S.constants
-    @unpack Δt_Δ,Δt_Δs = S.constants
-
-    @unpack nt,dtint = S.grid
-    @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S.grid
+function exp3_integrate(model)
 
     # calculate layer thicknesses for initial conditions
-    ShallowWaters.thickness!(Diag.VolumeFluxes.h,η,S.forcing.H)
-    ShallowWaters.Ix!(Diag.VolumeFluxes.h_u,Diag.VolumeFluxes.h)
-    ShallowWaters.Iy!(Diag.VolumeFluxes.h_v,Diag.VolumeFluxes.h)
-    ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
+    ShallowWaters.thickness!(model.S.Diag.VolumeFluxes.h, model.S.Prog.η, model.S.forcing.H)
+    ShallowWaters.Ix!(model.S.Diag.VolumeFluxes.h_u, model.S.Diag.VolumeFluxes.h)
+    ShallowWaters.Iy!(model.S.Diag.VolumeFluxes.h_v, model.S.Diag.VolumeFluxes.h)
+    ShallowWaters.Ixy!(model.S.Diag.Vorticity.h_q, model.S.Diag.VolumeFluxes.h)
 
     # calculate PV terms for initial conditions
-    urhs = Diag.PrognosticVarsRHS.u .= u
-    vrhs = Diag.PrognosticVarsRHS.v .= v
-    ηrhs = Diag.PrognosticVarsRHS.η .= η
+    urhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Prog.u
+    vrhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Prog.v
+    ηrhs = model.S.Diag.PrognosticVarsRHS.η .= model.S.Prog.η
 
-    ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S)
-    ShallowWaters.PVadvection!(Diag,S)
+    ShallowWaters.advection_coriolis!(urhs, vrhs, ηrhs, model.S.Diag, model.S)
+    ShallowWaters.PVadvection!(model.S.Diag, model.S)
 
     # propagate initial conditions
-    copyto!(u0,u)
-    copyto!(v0,v)
-    copyto!(η0,η)
+    copyto!(model.S.Diag.RungeKutta.u0, model.S.Prog.u)
+    copyto!(model.S.Diag.RungeKutta.v0, model.S.Prog.v)
+    copyto!(model.S.Diag.RungeKutta.η0, model.S.Prog.η)
 
     # store initial conditions of sst for relaxation
-    copyto!(Diag.SemiLagrange.sst_ref,sst)
-    chkp.j = 1
+    copyto!(model.S.Diag.SemiLagrange.sst_ref, model.S.Prog.sst)
 
     # run integration loop with checkpointing
-    for chkp.i = 1:S.grid.nt
+    model.j = 1
+    for model.i = 1:model.S.grid.nt
 
-        Diag = S.Diag
-        Prog = S.Prog
-    
-        @unpack u,v,η,sst = Prog
-        @unpack u0,v0,η0 = Diag.RungeKutta
-        @unpack u1,v1,η1 = Diag.RungeKutta
-        @unpack du,dv,dη = Diag.Tendencies
-        @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
-        @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
-    
-        @unpack um,vm = Diag.SemiLagrange
-    
-        @unpack dynamics,RKo,RKs,tracer_advection = S.parameters
-        @unpack time_scheme,compensated = S.parameters
-        @unpack RKaΔt,RKbΔt = S.constants
-        @unpack Δt_Δ,Δt_Δs = S.constants
-    
-        @unpack nt,dtint = S.grid
-        @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S.grid
-        t = chkp.t
-        i = chkp.i
+        t = model.S.t
+        i = model.i
 
         # ghost point copy for boundary conditions
-        ShallowWaters.ghost_points!(u,v,η,S)
-        copyto!(u1,u)
-        copyto!(v1,v)
-        copyto!(η1,η)
+        ShallowWaters.ghost_points!(model.S.Prog.u, model.S.Prog.v, model.S.Prog.η, model.S)
+        copyto!(model.S.Diag.RungeKutta.u1, model.S.Prog.u)
+        copyto!(model.S.Diag.RungeKutta.v1, model.S.Prog.v)
+        copyto!(model.S.Diag.RungeKutta.η1, model.S.Prog.η)
 
-        if compensated
-            fill!(du_sum,zero(Tprog))
-            fill!(dv_sum,zero(Tprog))
-            fill!(dη_sum,zero(Tprog))
+        if model.S.parameters.compensated
+            fill!(model.S.Diag.Tendencies.du_sum, zero(model.S.parameters.Tprog))
+            fill!(model.S.Diag.Tendencies.dv_sum, zero(model.S.parameters.Tprog))
+            fill!(model.S.Diag.Tendencies.dη_sum, zero(model.S.parameters.Tprog))
         end
 
-        for rki = 1:RKo
+        for rki = 1:model.S.parameters.RKo
             if rki > 1
-                ShallowWaters.ghost_points!(u1,v1,η1,S)
+                ShallowWaters.ghost_points!(
+                    model.S.Diag.RungeKutta.u1,
+                    model.S.Diag.RungeKutta.v1,
+                    model.S.Diag.RungeKutta.η1,
+                    model.S
+                )
             end
 
             # type conversion for mixed precision
-            u1rhs = Diag.PrognosticVarsRHS.u .= u1
-            v1rhs = Diag.PrognosticVarsRHS.v .= v1
-            η1rhs = Diag.PrognosticVarsRHS.η .= η1
+            u1rhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Diag.RungeKutta.u1
+            v1rhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Diag.RungeKutta.v1
+            η1rhs = model.S.Diag.PrognosticVarsRHS.η .= model.S.Diag.RungeKutta.η1
 
-            ShallowWaters.rhs!(u1rhs,v1rhs,η1rhs,Diag,S,t)          # momentum only
-            ShallowWaters.continuity!(u1rhs,v1rhs,η1rhs,Diag,S,t)   # continuity equation
+            ShallowWaters.rhs!(u1rhs, v1rhs, η1rhs, model.S.Diag, model.S, t)          # momentum only
+            ShallowWaters.continuity!(u1rhs, v1rhs, η1rhs, model.S.Diag, model.S, t)   # continuity equation
 
-            if rki < RKo
-                ShallowWaters.caxb!(u1,u,RKbΔt[rki],du)   #u1 .= u .+ RKb[rki]*Δt*du
-                ShallowWaters.caxb!(v1,v,RKbΔt[rki],dv)   #v1 .= v .+ RKb[rki]*Δt*dv
-                ShallowWaters.caxb!(η1,η,RKbΔt[rki],dη)   #η1 .= η .+ RKb[rki]*Δt*dη
+            if rki < model.S.parameters.RKo
+                ShallowWaters.caxb!(
+                    model.S.Diag.RungeKutta.u1,
+                    model.S.Prog.u,
+                    model.S.constants.RKbΔt[rki],
+                    model.S.Diag.Tendencies.du
+                )
+                ShallowWaters.caxb!(
+                    model.S.Diag.RungeKutta.v1,
+                    model.S.Prog.v,
+                    model.S.constants.RKbΔt[rki],
+                    model.S.Diag.Tendencies.dv
+                )
+                ShallowWaters.caxb!(
+                    model.S.Diag.RungeKutta.η1,
+                    model.S.Prog.η,
+                    model.S.constants.RKbΔt[rki],
+                    model.S.Diag.Tendencies.dη
+                )
             end
 
-            if compensated      # accumulate tendencies
-                ShallowWaters.axb!(du_sum,RKaΔt[rki],du)
-                ShallowWaters.axb!(dv_sum,RKaΔt[rki],dv)
-                ShallowWaters.axb!(dη_sum,RKaΔt[rki],dη)
-            else    # sum RK-substeps on the go
-                ShallowWaters.axb!(u0,RKaΔt[rki],du)          #u0 .+= RKa[rki]*Δt*du
-                ShallowWaters.axb!(v0,RKaΔt[rki],dv)          #v0 .+= RKa[rki]*Δt*dv
-                ShallowWaters.axb!(η0,RKaΔt[rki],dη)          #η0 .+= RKa[rki]*Δt*dη
+            if model.S.parameters.compensated
+                ShallowWaters.axb!(model.S.Diag.Tendencies.du_sum, model.S.constants.RKaΔt[rki], model.S.Diag.Tendencies.du)
+                ShallowWaters.axb!(model.S.Diag.Tendencies.dv_sum, model.S.constants.RKaΔt[rki], model.S.Diag.Tendencies.dv)
+                ShallowWaters.axb!(model.S.Diag.Tendencies.dη_sum, model.S.constants.RKaΔt[rki], model.S.Diag.Tendencies.dη)
+            else
+                ShallowWaters.axb!(
+                    model.S.Diag.RungeKutta.u0,
+                    model.S.constants.RKaΔt[rki],
+                    model.S.Diag.Tendencies.du
+                )
+                ShallowWaters.axb!(
+                    model.S.Diag.RungeKutta.v0,
+                    model.S.constants.RKaΔt[rki],
+                    model.S.Diag.Tendencies.dv
+                )
+                ShallowWaters.axb!(
+                    model.S.Diag.RungeKutta.η0,
+                    model.S.constants.RKaΔt[rki],
+                    model.S.Diag.Tendencies.dη
+                )
             end
         end
 
-        if compensated
-            # add compensation term to total tendency
-            ShallowWaters.axb!(du_sum,-1,du_comp)
-            ShallowWaters.axb!(dv_sum,-1,dv_comp)
-            ShallowWaters.axb!(dη_sum,-1,dη_comp)
+        if model.S.parameters.compensated
+            ShallowWaters.axb!(model.S.Diag.Tendencies.du_sum, -1, model.S.Diag.Tendencies.du_comp)
+            ShallowWaters.axb!(model.S.Diag.Tendencies.dv_sum, -1, model.S.Diag.Tendencies.dv_comp)
+            ShallowWaters.axb!(model.S.Diag.Tendencies.dη_sum, -1, model.S.Diag.Tendencies.dη_comp)
 
-            ShallowWaters.axb!(u0,1,du_sum)   # update prognostic variable with total tendency
-            ShallowWaters.axb!(v0,1,dv_sum)
-            ShallowWaters.axb!(η0,1,dη_sum)
+            ShallowWaters.axb!(model.S.Diag.RungeKutta.u0, 1, model.S.Diag.Tendencies.du_sum)
+            ShallowWaters.axb!(model.S.Diag.RungeKutta.v0, 1, model.S.Diag.Tendencies.dv_sum)
+            ShallowWaters.axb!(model.S.Diag.RungeKutta.η0, 1, model.S.Diag.Tendencies.dη_sum)
 
-            ShallowWaters.dambmc!(du_comp,u0,u,du_sum)    # compute new compensation
-            ShallowWaters.dambmc!(dv_comp,v0,v,dv_sum)
-            ShallowWaters.dambmc!(dη_comp,η0,η,dη_sum)
+            ShallowWaters.dambmc!(
+                model.S.Diag.Tendencies.du_comp,
+                model.S.Diag.RungeKutta.u0,
+                model.S.Prog.u,
+                model.S.Diag.Tendencies.du_sum
+            )
+            ShallowWaters.dambmc!(
+                model.S.Diag.Tendencies.dv_comp,
+                model.S.Diag.RungeKutta.v0,
+                model.S.Prog.v,
+                model.S.Diag.Tendencies.dv_sum
+            )
+            ShallowWaters.dambmc!(
+                model.S.Diag.Tendencies.dη_comp,
+                model.S.Diag.RungeKutta.η0,
+                model.S.Prog.η,
+                model.S.Diag.Tendencies.dη_sum
+            )
         end
 
-        ShallowWaters.ghost_points!(u0,v0,η0,S)
+        ShallowWaters.ghost_points!(
+            model.S.Diag.RungeKutta.u0,
+            model.S.Diag.RungeKutta.v0,
+            model.S.Diag.RungeKutta.η0,
+            model.S
+        )
 
-        # type conversion for mixed precision
-        u0rhs = Diag.PrognosticVarsRHS.u .= u0
-        v0rhs = Diag.PrognosticVarsRHS.v .= v0
-        η0rhs = Diag.PrognosticVarsRHS.η .= η0
+        u0rhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Diag.RungeKutta.u0
+        v0rhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Diag.RungeKutta.v0
+        η0rhs = model.S.Diag.PrognosticVarsRHS.η .= model.S.Diag.RungeKutta.η0
 
-        # ADVECTION and CORIOLIS TERMS
-        # although included in the tendency of every RK substep,
-        # only update every nstep_advcor steps if nstep_advcor > 0
-        if dynamics == "nonlinear" && nstep_advcor > 0 && (i % nstep_advcor) == 0
-            ShallowWaters.UVfluxes!(u0rhs,v0rhs,η0rhs,Diag,S)
-            ShallowWaters.advection_coriolis!(u0rhs,v0rhs,η0rhs,Diag,S)
+        if model.S.parameters.dynamics == "nonlinear" && model.S.grid.nstep_advcor > 0 && (i % model.S.grid.nstep_advcor) == 0
+            ShallowWaters.UVfluxes!(u0rhs, v0rhs, η0rhs, model.S.Diag, model.S)
+            ShallowWaters.advection_coriolis!(u0rhs, v0rhs, η0rhs, model.S.Diag, model.S)
         end
 
-        # DIFFUSIVE TERMS - SEMI-IMPLICIT EULER
-        # use u0 = u^(n+1) to evaluate tendencies, add to u0 = u^n + rhs
-        # evaluate only every nstep_diff time steps
-        if (S.parameters.i % nstep_diff) == 0
-            ShallowWaters.bottom_drag!(u0rhs,v0rhs,η0rhs,Diag,S)
-            ShallowWaters.diffusion!(u0rhs,v0rhs,Diag,S)
-            ShallowWaters.add_drag_diff_tendencies!(u0,v0,Diag,S)
-            ShallowWaters.ghost_points_uv!(u0,v0,S)
-        end
-
-        t += dtint
-
-        # TRACER ADVECTION
-        u0rhs = Diag.PrognosticVarsRHS.u .= u0
-        v0rhs = Diag.PrognosticVarsRHS.v .= v0
-        ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S)
-
-        # Cost function evaluation
-
-        if S.parameters.i in S.parameters.data_steps
-
-            temp = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S.Prog.u,
-            S.Prog.v,
-            S.Prog.η,
-            S.Prog.sst,S)...)
-
-            tempuv = [vec(temp.u);vec(temp.v)][Int.(chkp.data_spots)]
-
-            S.parameters.J += sum((tempuv - data[:, chkp.j]).^2)
-
-            chkp.j += 1
-
-        end
-
-        # Copy back from substeps
-        copyto!(u,u0)
-        copyto!(v,v0)
-        copyto!(η,η0)
-
+        if (model.S.parameters.i % model.S.grid.nstep_diff) == 0
+        ShallowWaters.bottom_drag!(u0rhs, v0rhs, η0rhs, model.S.Diag, model.S)
+        ShallowWaters.diffusion!(u0rhs, v0rhs, model.S.Diag, model.S)
+        ShallowWaters.add_drag_diff_tendencies!(
+            model.S.Diag.RungeKutta.u0,
+            model.S.Diag.RungeKutta.v0,
+            model.S.Diag,
+            model.S
+        )
+        ShallowWaters.ghost_points_uv!(
+            model.S.Diag.RungeKutta.u0,
+            model.S.Diag.RungeKutta.v0,
+            model.S
+        )
     end
 
-    return chkp.J
+    t += model.S.grid.dtint
+
+    u0rhs = model.S.Diag.PrognosticVarsRHS.u .= model.S.Diag.RungeKutta.u0
+    v0rhs = model.S.Diag.PrognosticVarsRHS.v .= model.S.Diag.RungeKutta.v0
+    ShallowWaters.tracer!(i, u0rhs, v0rhs, model.S.Prog, model.S.Diag, model.S)
+
+    if i in model.data_steps
+        temp = ShallowWaters.PrognosticVars{model.S.parameters.T}(ShallowWaters.remove_halo(
+            model.S.Prog.u,
+            model.S.Prog.v,
+            model.S.Prog.η,
+            model.S.Prog.sst,
+            model.S
+        )...)
+
+        tempuv = [vec(temp.u); vec(temp.v)][model.data_spots]
+
+        model.J += sum((tempuv - model.data[:, model.j]).^2)
+
+        model.j += 1
+    end
+
+    copyto!(model.S.Prog.u, model.S.Diag.RungeKutta.u0)
+    copyto!(model.S.Prog.v, model.S.Diag.RungeKutta.v0)
+    copyto!(model.S.Prog.η, model.S.Diag.RungeKutta.η0)
+    end
+
+    return model.J
 
 end
 
-function exp3_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
+function NLPModels.obj(model, param_guess)
 
-    P = ShallowWaters.Parameter(T=Float64;
+    P = ShallowWaters.Parameter(T=model.S.parameters.T;
         output=false,
         L_ratio=1,
         g=9.81,
@@ -625,7 +558,6 @@ function exp3_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
         seasonal_wind_x=false,
         topography="flat",
         bc="nonperiodic",
-        bottom_drag="quadratic",
         α=2,
         nx=128,
         Ndays=Ndays,
@@ -633,8 +565,13 @@ function exp3_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
-    S = ShallowWaters.model_setup(P)
+    model.S = ShallowWaters.model_setup(P)
+    model.J = 0.0
+    model.j = 1
+    model.i = 1
+    model.t = 0
 
+    S = model.S
     current = 1
     for m in (S.Prog.u, S.Prog.v, S.Prog.η)
         sz = prod(size(m))
@@ -644,28 +581,13 @@ function exp3_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
     S.parameters.Fx0 = param_guess[end]
     data_spots = Int.(data_spots)
 
-    chkp = exp2_model{T}(S,
-        data,
-        data_spots,
-        data_steps,
-        0.0,
-        1,
-        1,
-        0.0
-    )
-
-    exp3_integrate(chkp)
-
-    return chkp.J
+    return exp3_integrate(model)
 
 end
 
-function exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
+function NLPModels.grad!(model, param_guess, G)
 
-    # Type precision
-    T = Float32
-
-    P = ShallowWaters.Parameter(T=T;
+    P = ShallowWaters.Parameter(T=model.S.parameters.T;
         output=false,
         L_ratio=1,
         g=9.81,
@@ -674,9 +596,7 @@ function exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
         Lx=3840e3,
         tracer_advection=false,
         tracer_relaxation=false,
-        bottom_drag="quadratic",
         seasonal_wind_x=false,
-        data_steps=data_steps,
         topography="flat",
         bc="nonperiodic",
         α=2,
@@ -686,38 +606,29 @@ function exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
 
-    S = ShallowWaters.model_setup(P)
+    model.S = ShallowWaters.model_setup(P)
+    model.J = 0.0
+    model.t = 0.0
+    model.j = 1
 
-    S.Prog.u = reshape(param_guess[1:17292], 131, 132)
-    S.Prog.v = reshape(param_guess[17293:34584], 132, 131)
-    S.Prog.η = reshape(param_guess[34585:end-1], 130, 130)
+    S = model.S
+    current = 1
+    for m in (S.Prog.u, S.Prog.v, S.Prog.η)
+        sz = prod(size(m))
+        m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
+        current += sz
+    end
     S.parameters.Fx0 = param_guess[end]
 
-    snaps = Int(floor(sqrt(S.grid.nt)))
-    revolve = Revolve{exp3_Chkp{T, T}}(S.grid.nt,
+    snaps = Int(floor(sqrt(model.S.grid.nt)))
+    revolve = Revolve(
         snaps;
         verbose=0,
         gc=true,
-        write_checkpoints=false,
-        write_checkpoints_filename = "",
-        write_checkpoints_period = 224
+        write_checkpoints=false
     )
-    data_spots = Int.(data_spots)
 
-    chkp = exp3_Chkp{T, T}(S,
-        data,
-        data_spots,
-        data_steps,
-        0.0,
-        1,
-        1,
-        0.0
-    )
-    dchkp = Enzyme.make_zero(chkp)
-
-    chkp_prim = deepcopy(chkp)
-    J = exp3_cpintegrate(chkp_prim, revolve)
-    println("Cost without AD: $J")
+    dmodel = Enzyme.make_zero(model)
 
     @time J = autodiff(
         set_runtime_activity(Enzyme.ReverseWithPrimal),
@@ -729,180 +640,55 @@ function exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
     println("Cost with AD: $J")
 
     # Get gradient
-    @unpack u, v, η = dchkp.S.Prog
-    G .= [vec(u); vec(v); vec(η); dchkp.S.parameters.Fx0]
+    G .= [vec(dmodel.S.Prog.u); vec(dmodel.S.Prog.v); vec(dmodel.S.Prog.η); dchkp.S.parameters.Fx0]
 
-    return dchkp
-
-end
-
-function exp3_FG(F, G, param_guess, data, data_spots, data_steps, Ndays)
-
-    G === nothing || exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
-    F === nothing || return exp3_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
-
-end
-
-function exp3_forcing_initialcond(N, data_spots, sigma_initcond, sigma_data; kwargs...)
-
-    P_true = ShallowWaters.Parameter(T=Float32;kwargs...)
-
-    S_true = ShallowWaters.model_setup(P_true)
-
-    data, true_states = exp3_generate_data(S_true, data_spots, sigma_data)
-
-    # initially setting up the prediction model with correct parameters
-    S_pred = ShallowWaters.model_setup(P_true)
-
-    for t = 1:224*3
-        _ = one_step_function(S_pred)
-    end
-
-    # here we perturb the ones that are going to be the "incorrect" (perturbed) parameters
-
-    S_pred.parameters.Fx0 = .0001 * S_true.parameters.Fx0
-    Prog_pred = ShallowWaters.PrognosticVars{Float32}(ShallowWaters.remove_halo(S_pred.Prog.u,
-        S_pred.Prog.v,
-        S_pred.Prog.η,
-        S_pred.Prog.sst,
-        S_pred)...
-    )
-
-    # perturb initial conditions from those seen by the "true" model (create incorrect initial conditions)
-    upert = zeros(size(Prog_pred.u))
-    vpert = zeros(size(Prog_pred.v))
-    etapert = zeros(size(Prog_pred.η))
-
-    for n = 1:5
-        for m = 1:5
-            urand = randn(4)
-            vrand = randn(4)
-            for k = 1:127
-                for j = 1:128
-                    upert[k,j] = sigma_initcond * urand[1] * cos((pi * n / 127) * k)*cos(pi * m / 128 * j)
-                        + sigma_initcond * urand[2] * sin((pi * n / 127) * k)*cos(pi * m / 128 * j)
-                        + sigma_initcond * urand[3] * cos((pi * n / 127) * k)*sin(pi * m / 128 * j)
-                        + sigma_initcond * urand[4] * sin((pi * n / 127) * k)*sin(pi * m / 128 * j)
-                    vpert[j,k] = sigma_initcond * vrand[1] * cos(pi * n / 128 * j) * cos(pi * m / 127 * k)
-                        + sigma_initcond * vrand[2] * cos(pi * n / 128 * j) * sin(pi * m / 127 * k)
-                        + sigma_initcond * vrand[3] * sin(pi * n / 128 * j) * cos(pi * m / 127 * k)
-                        + sigma_initcond * vrand[4] * sin(pi * n / 128 * j) * sin(pi * m / 127 * k)
-                end
-            end
-
-        end
-    end
-
-    for n = 1:5
-        for m = 1:5
-            etarand = randn(4)
-            for k = 1:128
-                for j = 1:128
-                    etapert[k,j] = sigma_initcond * etarand[1] * cos((pi * n / 128) * k)*cos(pi * m / 128 * j)
-                        + sigma_initcond * etarand[2] * cos((pi * n / 128) * k)*sin(pi * m / 128 * j)
-                        + sigma_initcond * etarand[3] * sin((pi * n / 128) * k)*cos(pi * m / 128 * j)
-                        + sigma_initcond * etarand[4] * sin((pi * n / 128) * k)*sin(pi * m / 128 * j)
-                end
-            end
-        end
-    end
-
-    Prog_pred.u = Prog_pred.u + upert
-    Prog_pred.v = Prog_pred.v + vpert
-    Prog_pred.η = Prog_pred.η + etapert
-    
-    uic,vic,etaic = ShallowWaters.add_halo(Prog_pred.u,Prog_pred.v,Prog_pred.η,Prog_pred.sst,S_pred)
-    S_pred.Prog.u = uic
-    S_pred.Prog.v = vic
-    S_pred.Prog.η = etaic
-
-    param_guess = [vec(uic); vec(vic); vec(etaic); S_pred.parameters.Fx0]
-
-    # integrating just the prediction model
-    _, pred_states = exp3_generate_data(deepcopy(S_pred), data_spots, sigma_data)
-
-    S_kf_all, ekf_avgu, ekf_avgv = exp3_run_ensemble_kf(N,
-    data,
-    param_guess,
-    data_spots,
-    sigma_initcond,
-    sigma_data;
-    kwargs...
-    )
-
-    Ndays = copy(S_pred.parameters.Ndays)
-    data_steps = copy(S_pred.parameters.data_steps)
-
-    dS = Enzyme.Compiler.make_zero(S_pred)
-    G = zeros(length(dS.Prog.u) + length(dS.Prog.v) + length(dS.Prog.η) + 1)
-
-    dchkp = exp3_gradient_eval(G, param_guess, data, data_spots, data_steps, Ndays)
-
-    @show dchkp.S.parameters.Fx0
-
-    fg!_closure(F, G, ic) = exp3_FG(F, G, ic, data, data_spots, data_steps, Ndays)
-    obj_fg = Optim.only_fg!(fg!_closure)
-    result = Optim.optimize(obj_fg, param_guess, Optim.LBFGS(), Optim.Options(show_trace=true, iterations=3))
-
-    # jldsave("exp3_minimizer_initcond_forcing_adjoint_042925.jld2",
-    #     u = reshape(result.minimizer[1:17292], 131, 132),
-    #     v = reshape(result.minimizer[17293:34584], 132, 131),
-    #     eta = reshape(result.minimizer[34585:end-1], 130, 130),
-    #     Fx0 = result.minimizer[end]
-    # )
-
-    S_adj = ShallowWaters.model_setup(P_true)
-    S_adj.Prog.u = reshape(result.minimizer[1:17292], 131, 132)
-    S_adj.Prog.v = reshape(result.minimizer[17293:34584], 132, 131)
-    S_adj.Prog.η = reshape(result.minimizer[34585:end-1], 130, 130)
-    S_adj.parameters.Fx0 = result.minimizer[end]
-    _, states_adj = exp3_generate_data(S_adj, data_spots, sigma_data)
-
-    return result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
+    return nothing
 
 end
 
 function run_exp3()
 
+    Ndays = 30
+    N = 10
+    sigma_data = 0.5        # this and the init cond are what the result from optimization used, be careful in adjusting
+    sigma_initcond = 10.
+    data_steps = 225:224:6733
     xu = 30:10:100
     yu = 40:10:100
     Xu = xu' .* ones(length(yu))
     Yu = ones(length(xu))' .* yu
 
-    N = 10
-    sigma_data = 0.5        # this and the init cond are what the result from optimization used, be careful in adjusting
-    sigma_initcond = 10.
-    data_steps = 225:225:6733
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
     data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
     data_spots = [data_spotsu; data_spotsv]
-    Ndays = 30
 
-    result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj = exp3_forcing_initialcond(N,
-        data_spots,
-        sigma_initcond,
-        sigma_data,
-        output=false,
-        L_ratio=1,
-        g=9.81,
-        H=500,
-        wind_forcing_x="double_gyre",
-        bottom_drag="quadratic",
-        Lx=3840e3,
-        tracer_advection=false,
-        tracer_relaxation=false,
-        seasonal_wind_x=false,
-        data_steps=data_steps,
-        topography="flat",
-        bc="nonperiodic",
-        α=2,
-        nx=128,
-        Ndays=Ndays,
-        initial_cond="ncfile",
-        initpath="./data_files_forkf/128_spinup_noforcing/"
+    adj_model, ekf_model, param_guess, S_pred, P_pred, true_states = exp3_model_setup(Float64, Ndays,N,sigma_data,sigma_initcond,data_steps,data_spots)
+
+    # run the ensemble Kalman filter
+    ekf_avgu, ekf_avgv = run_ensemble_kf(ekf_model, param_guess)
+
+    # run the adjoint optimization
+    qn_options = MadNLP.QuasiNewtonOptions(; max_history=200)
+    result = madnlp(
+        adj_model;
+        # linear_solver=LapackCPUSolver,
+        hessian_approximation=MadNLP.CompactLBFGS,
+        quasi_newton_options=qn_options
+        # max_iter=1000
     )
 
-    return result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj
+    S_adj = ShallowWaters.model_setup(P_pred)
+    current = 1
+    for m in (S_adj.Prog.u, S_adj.Prog.v, S_adj.Prog.η)
+        sz = prod(size(m))
+        m .= reshape(result.solution[current:(current + sz - 1)], size(m)...)
+        current += sz
+    end
+    S_adj.parameters.Fx0 = result.solution[end]
+
+    _, states_adj = exp1_generate_data(S_adj, data_steps, data_spots, sigma_data)
+
+    return result, pred_states, ekf_avgu, ekf_avgv, data, true_states, S_adj, states_adj, S_pred
 
 end
 

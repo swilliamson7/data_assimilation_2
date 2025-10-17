@@ -564,22 +564,21 @@ function NLPModels.grad!(model, param_guess, G)
 
     # if we want to use checkpointing
     snaps = Int(floor(sqrt(model.S.grid.nt)))
-    revolve = Revolve{exp1_adj_model}(model.S.grid.nt,
+    revolve = Revolve(
         snaps;
-        verbose=1,
+        verbose=0,
         gc=true,
-        write_checkpoints=false,
-        write_checkpoints_filename = "",
-        write_checkpoints_period = 224
+        write_checkpoints=false
     )
 
     dmodel = Enzyme.make_zero(model)
 
     J = autodiff(
         set_runtime_activity(Enzyme.ReverseWithPrimal),
-        exp1_integrate,
+        exp1_cpintegrate,
         Active,
-        Duplicated(model, dmodel)
+        Duplicated(model, dmodel),
+        Const(revolve)
     )[2]
 
     # derivative of loss with respect to initial condition
