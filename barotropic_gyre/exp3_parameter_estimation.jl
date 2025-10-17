@@ -118,7 +118,7 @@ function exp3_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
     meta = NLPModelMeta(length(param_guess); ncon=0, nnzh=0,x0=param_guess)
     counters = Counters()
 
-    adj_model = exp2_adj_model{T, typeof(param_guess)}(meta,
+    adj_model = exp3_adj_model{T, typeof(param_guess)}(meta,
         Counters(),
         Sadj,
         data,
@@ -130,7 +130,7 @@ function exp3_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
         0
     )
 
-    ekf_model = exp2_ekf_model{T}(
+    ekf_model = exp3_ekf_model{T}(
         Skf,
         N,
         data,
@@ -634,10 +634,9 @@ function NLPModels.grad!(model, param_guess, G)
         set_runtime_activity(Enzyme.ReverseWithPrimal),
         exp3_cpintegrate,
         Active,
-        Duplicated(chkp, dchkp),
+        Duplicated(model, dmodel),
         Const(revolve)
     )[2]
-    println("Cost with AD: $J")
 
     # Get gradient
     G .= [vec(dmodel.S.Prog.u); vec(dmodel.S.Prog.v); vec(dmodel.S.Prog.η); dchkp.S.parameters.Fx0]
