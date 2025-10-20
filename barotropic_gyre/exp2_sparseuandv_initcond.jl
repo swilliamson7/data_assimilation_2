@@ -670,10 +670,10 @@ function NLPModels.grad!(model, param_guess, G)
 
     J = autodiff(
         set_runtime_activity(Enzyme.ReverseWithPrimal),
-        exp2_integrate,
+        exp2_cpintegrate,
         Active,
-        Duplicated(model, dmodel)
-        # Const(revolve)
+        Duplicated(model, dmodel),
+        Const(revolve)
     )[2]
 
     # derivative of loss with respect to initial condition
