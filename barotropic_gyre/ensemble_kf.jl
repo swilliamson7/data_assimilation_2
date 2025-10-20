@@ -193,7 +193,7 @@ function run_ensemble_kf(model, param_guess)
 
         end
 
-        if t ∈ 10:10:S_for_values.grid.nt
+        if t ∈ 9:9:S_for_values.grid.nt
 
             kf_avgu = zeros(127,128)
             kf_avgv = zeros(128,127)

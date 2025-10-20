@@ -560,7 +560,7 @@ function NLPModels.obj(model, param_guess)
         bc="nonperiodic",
         α=2,
         nx=128,
-        Ndays=Ndays,
+        Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
@@ -601,7 +601,7 @@ function NLPModels.grad!(model, param_guess, G)
         bc="nonperiodic",
         α=2,
         nx=128,
-        Ndays=Ndays,
+        Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )

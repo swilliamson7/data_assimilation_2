@@ -368,7 +368,7 @@ function exp2_generate_data(S_true, data_steps, data_spots, sigma_data; compute_
         ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
 
         # storing daily states for the "true" values
-        if t ∈ 10:10:S_true.grid.nt
+        if t ∈ 9:9:S_true.grid.nt
             temp1 = ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)
             push!(true_states, temp1)

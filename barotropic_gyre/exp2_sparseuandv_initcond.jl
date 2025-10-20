@@ -109,6 +109,9 @@ function exp2_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
 
     param_guess = [vec(uic); vec(vic); vec(etaic)]
 
+    Spred = deepcopy(S_pred)
+    _, pred_states = exp2_generate_data(Spred, data_steps, data_spots, sigma_data)
+
     Skf = deepcopy(S_pred)
     Sadj = deepcopy(S_pred)
 
@@ -137,7 +140,7 @@ function exp2_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
         data_spots,
         1
     )
-    return adj_model, ekf_model, param_guess, S_pred, P_pred, true_states
+    return adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred, true_states
 end
 
 function exp2_cpintegrate(chkp, scheme)::Float64
@@ -600,7 +603,7 @@ function NLPModels.obj(model, param_guess)
         bc="nonperiodic",
         α=2,
         nx=128,
-        Ndays=Ndays,
+        Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
@@ -638,7 +641,7 @@ function NLPModels.grad!(model, param_guess, G)
         bc="nonperiodic",
         α=2,
         nx=128,
-        Ndays=Ndays,
+        Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
         initpath="./data_files_forkf/128_spinup_noforcing/"
     )
@@ -656,13 +659,11 @@ function NLPModels.grad!(model, param_guess, G)
 
     # if we want to use checkpointing
     snaps = Int(floor(sqrt(model.S.grid.nt)))
-    revolve = Revolve(model.S.grid.nt,
+    revolve = Revolve(
         snaps;
         verbose=0,
         gc=true,
-        write_checkpoints=false,
-        write_checkpoints_filename = "",
-        write_checkpoints_period = 224
+        write_checkpoints=false
     )
 
     dmodel = Enzyme.make_zero(model)
@@ -686,8 +687,8 @@ function exp2_initialcond_uvdata()
 
     Ndays = 20
     N = 20
-    sigma_data = 0.0000001                # this and the init cond are what the result from optimization used, be careful in adjusting
-    sigma_initcond = 0.001
+    sigma_data = 0.1                # this and the init cond are what the result from optimization used, be careful in adjusting
+    sigma_initcond = 0.1
     data_steps = 225:224:Ndays*225
 
     xu = 30:10:100
@@ -700,7 +701,7 @@ function exp2_initialcond_uvdata()
     data_spots = [data_spotsu; data_spotsv]
 
     # setup all models
-    adj_model, ekf_model, param_guess, S_pred, P_pred, true_states = exp2_model_setup(Float64,
+    adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred, true_states = exp2_model_setup(Float64,
         Ndays,
         N,
         sigma_data,
@@ -718,8 +719,8 @@ function exp2_initialcond_uvdata()
         adj_model;
         # linear_solver=LapackCPUSolver,
         hessian_approximation=MadNLP.CompactLBFGS,
-        quasi_newton_options=qn_options
-        # max_iter=1000
+        quasi_newton_options=qn_options,
+        max_iter=1000
     )
 
     # integrate with the result from the optimization
@@ -732,7 +733,7 @@ function exp2_initialcond_uvdata()
     end
     _, states_adj = exp2_generate_data(S_adj, data_steps, data_spots, sigma_data)
 
-    return ekf_avgu, ekf_avgv, G, dS, data, true_states, result, S_adj, states_adj, S_pred
+    return ekf_avgu, ekf_avgv, G, dS, data, true_states, result, S_adj, states_adj, S_pred, pred_states
 
 end
 
@@ -777,12 +778,12 @@ function exp2_plots()
 
     # results
     fig = Figure(size=(800,700));
-    t = 224
+    t = 10*9
     ax1, hm1 = heatmap(fig[1,1], true_states[t].v,
     colormap=:balance,
-    colorrange=(-maximum(true_states[t].v),
-    maximum(true_states[t].v)),
-    axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
+    colorrange=(-maximum(true_states[end].v),
+    maximum(true_states[end].v)),
+    axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig[1,2], hm1)
     ax2, hm2 = heatmap(fig[1,3], abs.(true_states[t].v .- states_adj[t].v),
@@ -795,8 +796,8 @@ function exp2_plots()
 
     ax3, hm3 = heatmap(fig[2, 1], ekf_avgv[t],
     colormap=:balance,
-    colorrange=(-maximum(ekf_avgv[t]),
-    maximum(ekf_avgv[t])),
+    colorrange=(-maximum(ekf_avgv[end]),
+    maximum(ekf_avgv[end])),
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig[2,2], hm3)
@@ -810,14 +811,14 @@ function exp2_plots()
 
     # energy plots
 
-    fig1 = Figure(size=(600, 500));
-    ax1, hm1 = heatmap(fig1[1,1], (true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2),
+    fig = Figure(size=(600, 500));
+    ax1, hm1 = heatmap(fig[1,1], (true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2),
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\mathcal{E}"),
     colorrange=(0,
     maximum(true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2))
     );
-    Colorbar(fig1[1,2], hm1)
+    Colorbar(fig[1,2], hm1)
 
     t = 673
 
@@ -837,20 +838,21 @@ function exp2_plots()
     )
     Colorbar(fig1[1,4], hm2)
 
-    ax3, hm3 = heatmap(fig1[2, 1], ekf_avgu[t][:, 1:end-1].^2 .+ ekf_avgv[t][1:end-1, :].^2,
+    t = 448
+    ax3, hm3 = heatmap(fig[2, 1], ekf_avgu[end][:, 1:end-1].^2 .+ ekf_avgv[end][1:end-1, :].^2,
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}"),
     colorrange=(0,
     maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
     );
-    Colorbar(fig1[2,2], hm3)
-    ax4, hm4 = heatmap(fig1[2,3], abs.((true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2) .- (ekf_avgu[t][:, 1:end-1].^2 .+ ekf_avgv[t][1:end-1, :].^2)),
+    Colorbar(fig[2,2], hm3)
+    ax4, hm4 = heatmap(fig[2,3], abs.((true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2) .- (ekf_avgu[t][:, 1:end-1].^2 .+ ekf_avgv[t][1:end-1, :].^2)),
     colormap=:amp,
     colorrange=(0,
     maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}|")
     )
-    Colorbar(fig1[2,4], hm4)
+    Colorbar(fig[2,4], hm4)
 
     # spatially averaged energy
 
@@ -890,7 +892,7 @@ function exp2_plots()
     up_pred = zeros(65, 673)
     vp_pred = zeros(65, 673)
 
-    for t = 1:673
+    for t = 1:498
         # up_adj[:,t] = power(periodogram(states_adj[t].u; radialavg=true))
         # vp_adj[:,t] = power(periodogram(states_adj[t].v; radialavg=true))
 
