@@ -315,19 +315,21 @@ function exp2_cpintegrate(chkp, scheme)::Float64
     v0rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v0
     ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
 
-    if i in chkp.data_steps
-        temp = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
-            chkp.S.Prog.u,
-            chkp.S.Prog.v,
-            chkp.S.Prog.η,
-            chkp.S.Prog.sst,
-            chkp.S
+
+    if i in model.data_steps
+        temp = ShallowWaters.PrognosticVars{model.S.parameters.T}(ShallowWaters.remove_halo(
+            model.S.Prog.u,
+            model.S.Prog.v,
+            model.S.Prog.η,
+            model.S.Prog.sst,
+            model.S
         )...)
 
-        tempuveta = [vec(temp.u); vec(temp.v); vec(temp.η)]
-        chkp.J += sum((tempuveta[chkp.data_spots] - chkp.data[:, chkp.j]).^2)
+        tempuv = [vec(temp.u); vec(temp.v)][model.data_spots]
 
-        chkp.j += 1
+        model.J += sum((tempuv - model.data[:, model.j]).^2)
+
+        model.j += 1
     end
 
     copyto!(chkp.S.Prog.u, chkp.S.Diag.RungeKutta.u0)
@@ -669,7 +671,7 @@ function exp2_initialcond_uvdata()
         # linear_solver=LapackCPUSolver,
         hessian_approximation=MadNLP.CompactLBFGS,
         quasi_newton_options=qn_options,
-        max_iter=400
+        max_iter=100
     )
 
     # integrate with the result from the optimization
