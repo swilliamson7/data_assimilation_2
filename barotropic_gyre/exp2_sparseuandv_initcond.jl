@@ -536,57 +536,6 @@ function exp2_integrate(model)
 
 end
 
-function exp2_cost_eval(param_guess, data, data_spots, data_steps, Ndays)
-
-    # Type precision
-    T = Float64
-
-    P = ShallowWaters.Parameter(T=T;
-    output=false,
-    L_ratio=1,
-    g=9.81,
-    H=500,
-    wind_forcing_x="double_gyre",
-    Lx=3840e3,
-    tracer_advection=false,
-    tracer_relaxation=false,
-    seasonal_wind_x=false,
-    topography="flat",
-    bc="nonperiodic",
-    bottom_drag="quadratic",
-    α=2,
-    nx=128,
-    Ndays=Ndays,
-    initial_cond="ncfile",
-    initpath="./data_files_forkf/128_spinup_noforcing/"
-    )
-    S = ShallowWaters.model_setup(P)
-
-    current = 1
-    for m in (S.Prog.u, S.Prog.v, S.Prog.η)
-        sz = prod(size(m))
-        m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
-        current += sz
-    end
-
-    data_spots = Int.(data_spots)
-
-    chkp = exp2_model{T}(S,
-        data,
-        data_spots,
-        data_steps,
-        0.0,
-        1,
-        1,
-        0.0
-    )
-
-    exp2_integrate(chkp)
-
-    return chkp.J
-
-end
-
 function NLPModels.obj(model, param_guess)
 
     P = ShallowWaters.Parameter(T=model.S.parameters.T;
@@ -714,13 +663,13 @@ function exp2_initialcond_uvdata()
     ekf_avgu, ekf_avgv = run_ensemble_kf(ekf_model, param_guess)
 
     # run the adjoint optimization
-    qn_options = MadNLP.QuasiNewtonOptions(; max_history=200)
+    qn_options = MadNLP.QuasiNewtonOptions(; max_history=50)
     result = madnlp(
         adj_model;
         # linear_solver=LapackCPUSolver,
         hessian_approximation=MadNLP.CompactLBFGS,
         quasi_newton_options=qn_options,
-        max_iter=1000
+        max_iter=400
     )
 
     # integrate with the result from the optimization
