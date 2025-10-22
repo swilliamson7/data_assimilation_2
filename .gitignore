@@ -2,6 +2,7 @@
 for_debugging/
 three_mass_spring/Enzyme.jl/
 ShallowWaters.jl/
+data_files_forkf
 *.txt
 *.nc
 *.zip
