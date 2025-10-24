@@ -1,6 +1,5 @@
 """
-Loss is the difference of u and v with data for u and v, tuning just the initial u and v 
-fields.
+Loss is the difference of u, v and eta with data for same fields, tuning all initial conditions
 """
 
 mutable struct exp2_adj_model{T, S} <: AbstractNLPModel{T,S}
@@ -130,7 +129,7 @@ function exp2_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
     println("norm of predicted - true v ", norm(S_pred.Prog.v - S_true.Prog.v))
     println("norm of predicted - true eta ", norm(S_pred.Prog.η - S_true.Prog.η))
 
-    param_guess = [vec(uic); vec(vic)]
+    param_guess = [vec(uic); vec(vic); vec(etaic)]
 
     Spred = deepcopy(S_pred)
     _, pred_states = exp2_generate_data(Spred, data_steps, data_spots, sigma_data)
@@ -163,7 +162,7 @@ function exp2_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
         data_spots,
         1
     )
-    return adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred, true_states
+    return adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred
 end
 
 function exp2_cpintegrate(chkp, scheme)::Float64
@@ -347,8 +346,8 @@ function exp2_cpintegrate(chkp, scheme)::Float64
             chkp.S
         )...)
 
-        tempuv = [vec(temp.u); vec(temp.v)]
-        chkp.J += sum((tempuv[chkp.data_spots] - chkp.data[:, chkp.j]).^2)
+        tempuveta = [vec(temp.u); vec(temp.v); vec(temp.η)]
+        chkp.J += sum((tempuveta[chkp.data_spots] - chkp.data[:, chkp.j][chkp.data_spots]).^2)
 
         chkp.j += 1
     end
@@ -543,8 +542,8 @@ function exp2_integrate(chkp)::Float64
             chkp.S
         )...)
 
-        tempuv = [vec(temp.u); vec(temp.v)]
-        chkp.J += sum((tempuv[chkp.data_spots] - chkp.data[:, chkp.j]).^2)
+        tempuveta = [vec(temp.u); vec(temp.v); vec(temp.η)]
+        chkp.J += sum((tempuveta[chkp.data_spots] - chkp.data[:, chkp.j][chkp.data_spots]).^2)
 
         chkp.j += 1
     end
@@ -588,7 +587,7 @@ function NLPModels.obj(model, param_guess)
 
     # modifying initial condition with the halo
     current = 1
-    for m in (model.S.Prog.u, model.S.Prog.v)#, model.S.Prog.η)
+    for m in (model.S.Prog.u, model.S.Prog.v, model.S.Prog.η)
         sz = prod(size(m))
         m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
         current += sz
@@ -649,7 +648,7 @@ function NLPModels.grad!(model, param_guess, G)
 
     # modifying initial condition with the halo
     current = 1
-    for m in (model.S.Prog.u, model.S.Prog.v)#, model.S.Prog.η)
+    for m in (model.S.Prog.u, model.S.Prog.v, model.S.Prog.η)
         sz = prod(size(m))
         m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
         current += sz
@@ -679,8 +678,7 @@ function NLPModels.grad!(model, param_guess, G)
         Const(revolve)
     )[2]
 
-
-    G .= [vec(dmodel.S.Prog.u); vec(dmodel.S.Prog.v)]#; vec(dmodel.S.Prog.η)]
+    G .= [vec(dmodel.S.Prog.u); vec(dmodel.S.Prog.v); vec(dmodel.S.Prog.η)]
 
     return nothing
 
@@ -706,7 +704,7 @@ function compute_initcond_newoptimizer()
     data_spots = [data_spotsu; data_spotsv]
 
     # setup all models
-    adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred, true_states = exp2_model_setup(Float64,
+    adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred = exp2_model_setup(Float64,
         Ndays,
         N,
         sigma_data,
