@@ -367,7 +367,7 @@ function exp2_generate_data(S_true, data_steps, data_spots, sigma_data; compute_
         v0rhs = Diag.PrognosticVarsRHS.v .= v0
         ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
 
-        # storing daily states for the "true" values
+        # storing hourly states, will make it easier to compute KE spectra later
         if t ∈ 9:9:S_true.grid.nt
             temp1 = ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)
@@ -381,7 +381,7 @@ function exp2_generate_data(S_true, data_steps, data_spots, sigma_data; compute_
             tempv = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).v)
 
-            data[:, j] = Float32.([tempu; tempv][Int.(data_spots)] .+ sigma_data .* randn(length(data_spots)))
+            data[:, j] = S_true.parameters.Tprog.([tempu; tempv][Int.(data_spots)] .+ sigma_data .* randn(length(data_spots)))
             j += 1
         end
 

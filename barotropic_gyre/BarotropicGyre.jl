@@ -2,7 +2,7 @@ using Checkpointing
 using Enzyme
 
 using CairoMakie, LinearAlgebra, Statistics, Random
-using Parameters, UnPack, LaTeXStrings
+using Parameters, UnPack, LaTeXStrings, NetCDF
 using JLD2, DSP, FFTW
 using ShallowWaters
 using NLPModels, MadNLP

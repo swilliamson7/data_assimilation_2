@@ -193,6 +193,7 @@ function run_ensemble_kf(model, param_guess)
 
         end
 
+        # storing hourly data points
         if t ∈ 9:9:S_for_values.grid.nt
 
             kf_avgu = zeros(127,128)
