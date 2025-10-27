@@ -1,8 +1,13 @@
 """
-Loss is the difference of u, v and eta with data for same fields, tuning all initial conditions
+Loss is difference of η with data for η, as well as a time-averaged η difference
+The data assimilation is run assuming flat bottom-topography, true model has ridged
+bottom topography
+All initial conditions are perturbed
+Daily data temporally, all locations spatially
+Gradient will modify entire initial condition despite only having eta information
 """
 
-mutable struct exp2_adj_model{T, S} <: AbstractNLPModel{T,S}
+mutable struct exp5_adj_model{T, S} <: AbstractNLPModel{T,S}
     meta::NLPModelMeta{T,S}
     counters::Counters
     S::ShallowWaters.ModelSetup{T,T}        # model structure
@@ -10,6 +15,8 @@ mutable struct exp2_adj_model{T, S} <: AbstractNLPModel{T,S}
     v_nohalo::Array{T,2}
     J::Float64                              # objective value
     data::Array{T, 2}
+    avg_eta::Array{T, 2}                    # time-averaged true eta
+    pred_avg_eta::Array{T,2}                # predicted time-averaged eta
     data_steps::StepRange{Int, Int}         # when data is assimilated temporally
     data_spots::Array{Int,1}                # where data is located spatially, grid coordinates
     j::Int                                  # for keeping track of location in data
@@ -17,7 +24,7 @@ mutable struct exp2_adj_model{T, S} <: AbstractNLPModel{T,S}
     t::Int64                                # model time (e.g. dt * i)
 end
 
-mutable struct exp2_ekf_model{T}
+mutable struct exp5_ekf_model{T}
     S::ShallowWaters.ModelSetup{T,T}        # model struct for adjoint
     N::Int                                  # number of ensemble members
     data::Array{T, 2}                       # data to be assimilated
@@ -28,7 +35,7 @@ mutable struct exp2_ekf_model{T}
     j::Int                                  # for keeping track of location in data
 end
 
-function exp2_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, data_spots)
+function exp5_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, data_spots)
 
     P_pred = ShallowWaters.Parameter(T=T;
         output=false,
@@ -46,7 +53,7 @@ function exp2_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
         nx=128,
         Ndays=Ndays,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_postspinup_1year_noslipbc_epsetup",
+        initpath="./data_files_forkf/128_postspinup_1year_ridgebottomtopography/",
         init_starti=1
     )
 
@@ -56,13 +63,14 @@ function exp2_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
     println("norm of true v ", norm(S_true.Prog.v))
     println("norm of true eta ", norm(S_true.Prog.η))
 
-    udata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/u.nc", "u")
-    vdata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/v.nc", "v")
-    etadata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/eta.nc", "eta")
+    etadata = ncread("./data_files_forkf/128_postspinup_1year_ridgebottomtopography/eta.nc", "eta")
 
-    data = zeros(128*127*2 + 128*128, Ndays)
+    data = zeros(128*128, Ndays)
+    avg_eta = zeros(128,128)
     for j = 2:Ndays+1
-        data[:,j-1] .= [vec(udata[:,:,j]); vec(vdata[:,:,j]); vec(etadata[:,:,j])]
+        perturbed_data = etadata[:,:,j] .+ sigma_data .* randn(128,128)
+        data[:,j-1] .= vec(perturbed_data)
+        avg_eta += etadata[:,:,j]
     end
 
     S_pred = ShallowWaters.model_setup(P_pred)
@@ -102,24 +110,24 @@ function exp2_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
         end
     end
 
-    # for n = 1:5
-    #     for m = 1:5
-    #         etarand = randn(4)
-    #         for k = 1:128
-    #             for j = 1:128
-    #                 etapert[k,j] += sigma_initcond * etarand[1] * cos((pi * n / 128) * k)*cos(pi * m / 128 * j)
-    #                     + sigma_initcond * etarand[2] * cos((pi * n / 128) * k)*sin(pi * m / 128 * j)
-    #                     + sigma_initcond * etarand[3] * sin((pi * n / 128) * k)*cos(pi * m / 128 * j)
-    #                     + sigma_initcond * etarand[4] * sin((pi * n / 128) * k)*sin(pi * m / 128 * j)
-    #             end
-    #         end
-    #     end
-    # end
+    for n = 1:5
+        for m = 1:5
+            etarand = randn(4)
+            for k = 1:128
+                for j = 1:128
+                    etapert[k,j] += sigma_initcond * etarand[1] * cos((pi * n / 128) * k)*cos(pi * m / 128 * j)
+                        + sigma_initcond * etarand[2] * cos((pi * n / 128) * k)*sin(pi * m / 128 * j)
+                        + sigma_initcond * etarand[3] * sin((pi * n / 128) * k)*cos(pi * m / 128 * j)
+                        + sigma_initcond * etarand[4] * sin((pi * n / 128) * k)*sin(pi * m / 128 * j)
+                end
+            end
+        end
+    end
 
     Prog_pred.u = Prog_pred.u + upert
     Prog_pred.v = Prog_pred.v + vpert
     Prog_pred.η = Prog_pred.η + etapert
-    
+
     uic,vic,etaic = ShallowWaters.add_halo(Prog_pred.u,Prog_pred.v,Prog_pred.η,Prog_pred.sst,S_pred)
     S_pred.Prog.u = uic
     S_pred.Prog.v = vic
@@ -132,19 +140,22 @@ function exp2_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
     param_guess = [vec(uic); vec(vic); vec(etaic)]
 
     Spred = deepcopy(S_pred)
-    _, pred_states = exp2_generate_data(Spred, data_steps, data_spots, sigma_data)
+    # pred_states = exp2_generate_data(Spred,data_steps, data_spots, sigma_data)
+    pred_states = hourly_save_run(Spred)
 
     Skf = deepcopy(S_pred)
     Sadj = deepcopy(S_pred)
 
     meta = NLPModelMeta(length(param_guess); ncon=0, nnzh=0,x0=param_guess)
-    adj_model = exp2_adj_model{T, typeof(param_guess)}(meta,
+    adj_model = exp5_adj_model{T, typeof(param_guess)}(meta,
         Counters(),
         Sadj,
         zeros(size(Prog_pred.u)),
         zeros(size(Prog_pred.v)),
         0.0,
         data,
+        avg_eta,
+        T.(zeros(128,128)),
         data_steps,
         data_spots,
         1,
@@ -152,7 +163,7 @@ function exp2_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
         0.0
     )
 
-    ekf_model = exp2_ekf_model{T}(
+    ekf_model = exp5_ekf_model{T}(
         Skf,
         N,
         data,
@@ -162,10 +173,11 @@ function exp2_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
         data_spots,
         1
     )
+
     return adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred
 end
 
-function exp2_cpintegrate(chkp, scheme)::Float64
+function exp5_cpintegrate(chkp, scheme)::Float64
 
     # calculate layer thicknesses for initial conditions
     ShallowWaters.thickness!(chkp.S.Diag.VolumeFluxes.h, chkp.S.Prog.η, chkp.S.forcing.H)
@@ -329,39 +341,40 @@ function exp2_cpintegrate(chkp, scheme)::Float64
             chkp.S.Diag.RungeKutta.v0,
             chkp.S
         )
+        end
+
+        t += chkp.S.grid.dtint
+
+        u0rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u0
+        v0rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v0
+        ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
+
+        if i in chkp.data_steps
+            temp = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
+                chkp.S.Prog.u,
+                chkp.S.Prog.v,
+                chkp.S.Prog.η,
+                chkp.S.Prog.sst,
+                chkp.S
+            )...)
+
+            chkp.pred_avg_eta += temp.η
+            chkp.J += sum((vec(temp.η) - chkp.data[:, chkp.j]).^2)
+
+            chkp.j += 1
+        end
+
+        copyto!(chkp.S.Prog.u, chkp.S.Diag.RungeKutta.u0)
+        copyto!(chkp.S.Prog.v, chkp.S.Diag.RungeKutta.v0)
+        copyto!(chkp.S.Prog.η, chkp.S.Diag.RungeKutta.η0)
     end
 
-    t += chkp.S.grid.dtint
-
-    u0rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u0
-    v0rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v0
-    ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
-
-    if i in chkp.data_steps
-        temp = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
-            chkp.S.Prog.u,
-            chkp.S.Prog.v,
-            chkp.S.Prog.η,
-            chkp.S.Prog.sst,
-            chkp.S
-        )...)
-
-        tempuveta = [vec(temp.u); vec(temp.v); vec(temp.η)]
-        chkp.J += sum((tempuveta[chkp.data_spots] - chkp.data[:, chkp.j][chkp.data_spots]).^2)
-
-        chkp.j += 1
-    end
-
-    copyto!(chkp.S.Prog.u, chkp.S.Diag.RungeKutta.u0)
-    copyto!(chkp.S.Prog.v, chkp.S.Diag.RungeKutta.v0)
-    copyto!(chkp.S.Prog.η, chkp.S.Diag.RungeKutta.η0)
-    end
-
+    chkp.J += sum((chkp.pred_avg_eta .- chkp.avg_eta).^2)
     return chkp.J
 
 end
 
-function exp2_integrate(chkp)::Float64
+function exp5_integrate(chkp)::Float64
 
     # calculate layer thicknesses for initial conditions
     ShallowWaters.thickness!(chkp.S.Diag.VolumeFluxes.h, chkp.S.Prog.η, chkp.S.forcing.H)
@@ -525,33 +538,35 @@ function exp2_integrate(chkp)::Float64
             chkp.S.Diag.RungeKutta.v0,
             chkp.S
         )
+        end
+
+        t += chkp.S.grid.dtint
+
+        u0rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u0
+        v0rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v0
+        ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
+
+        if i in chkp.data_steps
+            temp = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
+                chkp.S.Prog.u,
+                chkp.S.Prog.v,
+                chkp.S.Prog.η,
+                chkp.S.Prog.sst,
+                chkp.S
+            )...)
+
+            chkp.pred_avg_eta += temp.η
+            chkp.J += sum((vec(temp.η) - chkp.data[:, chkp.j]).^2)
+
+            chkp.j += 1
+        end
+
+        copyto!(chkp.S.Prog.u, chkp.S.Diag.RungeKutta.u0)
+        copyto!(chkp.S.Prog.v, chkp.S.Diag.RungeKutta.v0)
+        copyto!(chkp.S.Prog.η, chkp.S.Diag.RungeKutta.η0)
     end
 
-    t += chkp.S.grid.dtint
-
-    u0rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u0
-    v0rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v0
-    ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
-
-    if i in chkp.data_steps
-        temp = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
-            chkp.S.Prog.u,
-            chkp.S.Prog.v,
-            chkp.S.Prog.η,
-            chkp.S.Prog.sst,
-            chkp.S
-        )...)
-
-        tempuveta = [vec(temp.u); vec(temp.v); vec(temp.η)]
-        chkp.J += sum((tempuveta[chkp.data_spots] - chkp.data[:, chkp.j][chkp.data_spots]).^2)
-
-        chkp.j += 1
-    end
-
-    copyto!(chkp.S.Prog.u, chkp.S.Diag.RungeKutta.u0)
-    copyto!(chkp.S.Prog.v, chkp.S.Diag.RungeKutta.v0)
-    copyto!(chkp.S.Prog.η, chkp.S.Diag.RungeKutta.η0)
-    end
+    chkp.J += sum((chkp.pred_avg_eta .- chkp.avg_eta).^2)
 
     return chkp.J
 
@@ -559,23 +574,23 @@ end
 
 function NLPModels.obj(model, param_guess)
 
-    P_temp = ShallowWaters.Parameter(T=model.S.parameters.T;output=false,
+    P_temp = ShallowWaters.Parameter(T=model.S.parameters.T;
+        output=false,
         L_ratio=1,
         g=9.81,
         H=500,
         wind_forcing_x="double_gyre",
         Lx=3840e3,
+        tracer_advection=false,
+        tracer_relaxation=false,
         seasonal_wind_x=false,
         topography="flat",
         bc="nonperiodic",
-        bottom_drag="quadratic",
-        tracer_advection=false,
-        tracer_relaxation=false,
         α=2,
         nx=128,
-        Ndays=model.S.parameters.Ndays,
+        Ndays=model.S.parameters.T,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_spinup_noforcing/",
+        initpath="./data_files_forkf/128_postspinup_1year_ridgebottomtopography/",
         init_starti=1
     )
 
@@ -607,7 +622,7 @@ function NLPModels.obj(model, param_guess)
     # model.S.Prog.u .= scale*(cat(zeros(P_temp.T,halo,nuy+2*halo),cat(-model.u_nohalo[:,[2,1]], model.u_nohalo,-model.u_nohalo[:,[end, end-1]],dims=2),zeros(P_temp.T,halo,nuy+2*halo),dims=1))
     # model.S.Prog.v .= scale*(cat(zeros(P_temp.T,nvx+2*halo,halo),cat(-model.v_nohalo[[2; 1],:],model.v_nohalo,-model.v_nohalo[[end; end-1],:],dims=1),zeros(P_temp.T,nvx+2*halo,halo),dims=2))
 
-    return exp2_integrate(model)
+    return exp5_integrate(model)
 
 end
 
@@ -627,9 +642,9 @@ function NLPModels.grad!(model, param_guess, G)
         bc="nonperiodic",
         α=2,
         nx=128,
-        Ndays=model.S.parameters.Ndays,
+        Ndays=model.S.parameters.T,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_postspinup_1year_noslipbc_epsetup",
+        initpath="./data_files_forkf/128_postspinup_1year_ridgebottomtopography/",
         init_starti=1
     )
 
@@ -687,24 +702,27 @@ end
 function compute_initcond_newoptimizer()
 
     # number of days to run the integration
-    Ndays = 20
-    # number of ensemble members
+    Ndays = 30
+
+    # number of ensemble members, typically leaving this 20
     N = 20
+
+    # trying with extra noisy data
     sigma_data = 0.1
     sigma_initcond = 0.1
     data_steps = 225:224:Ndays*225
 
-    xu = 30:10:100
-    yu = 40:10:100
-    Xu = xu' .* ones(length(yu))
-    Yu = ones(length(xu))' .* yu
+    # we want data for η everywhere spatially
+    xeta = 1:1:128
+    yeta = 1:1:128
+    Xeta = xeta' .* ones(length(yeta))
+    Yeta = ones(length(xeta))' .* yeta
 
-    data_spotsu = vec((Xu.-1) .* 127 + Yu)
-    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
-    data_spots = [data_spotsu; data_spotsv]
+    # we want data for all of u, v, and η for this experiment
+    data_spots = Int.(vec((Xeta.-1) .* 128 + Yeta))
 
     # setup all models
-    adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred = exp2_model_setup(Float64,
+    adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred = exp5_model_setup(Float64,
         Ndays,
         N,
         sigma_data,
@@ -714,7 +732,7 @@ function compute_initcond_newoptimizer()
     )
 
     # run the ensemble Kalman filter
-    ekf_avgu, ekf_avgv = run_ensemble_kf(ekf_model, param_guess)
+    ekf_avgu, ekf_avgv = run_ensemble_kf(ekf_model, param_guess; udata=false, vdata=false, etadata=true)
 
     # run the adjoint optimization
     qn_options = MadNLP.QuasiNewtonOptions(; max_history=100)
@@ -729,7 +747,7 @@ function compute_initcond_newoptimizer()
     # integrate with the result from the optimization
     S_adj = ShallowWaters.model_setup(P_pred)
     current = 1
-    for m in (S_adj.Prog.u, S_adj.Prog.v)#, S_adj.Prog.η)
+    for m in (S_adj.Prog.u, S_adj.Prog.v, S_adj.Prog.η)
         sz = prod(size(m))
         m .= reshape(result.solution[current:(current + sz - 1)], size(m)...)
         current += sz
@@ -742,12 +760,17 @@ end
 
 function exp2_plots()
 
-    # S_kf_all, Progkf_all, G, dS, data, true_states, result, S_adj, states_adj
+    # ekf_avgu, ekf_avgv, G, dS, data, true_states, result, S_adj, states_adj, S_pred, pred_states
 
-    Ndays = 10
+    # number of days to run the integration
+    Ndays = 30
+
+    # number of ensemble members, typically leaving this 20
     N = 20
-    sigma_data = 0.1                # this and the init cond are what the result from optimization used, be careful in adjusting
-    sigma_initcond = 0.1
+
+    # trying with extra noisy data
+    sigma_data = 0.5
+    sigma_initcond = 0.5
     data_steps = 225:224:Ndays*225
 
     xu = 30:10:100
@@ -756,7 +779,7 @@ function exp2_plots()
     Yu = ones(length(xu))' .* yu
 
     data_spotsu = vec((Xu.-1) .* 127 + Yu)
-    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)        # just adding the offset of the size of u, otherwise same spatial locations roughly
+    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
     data_spots = [data_spotsu; data_spotsv]
 
     # location of data spatially on true fields
@@ -822,32 +845,33 @@ function exp2_plots()
     );
     Colorbar(fig[1,2], hm1)
 
-    t = 673
+    fig = Figure(size=(800, 700));
+    t = 748
 
-    fig1 = Figure(size=(800, 700));
-    ax1, hm1 = heatmap(fig1[1,1], states_adj[t].u[:, 1:end-1].^2 .+ states_adj[t].v[1:end-1, :].^2,
+    ax1, hm1 = heatmap(fig[1,1], pred_states[t].u[:, 1:end-1].^2 .+ pred_states[t].v[1:end-1, :].^2,
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}(+)"),
     colorrange=(0,
     maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
     );
-    Colorbar(fig1[1,2], hm1)
-    ax2, hm2 = heatmap(fig1[1,3], abs.((true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2) .- (states_adj[t].u[:, 1:end-1].^2 .+ states_adj[t].v[1:end-1, :].^2)),
+    Colorbar(fig[1,2], hm1)
+
+    ax2, hm2 = heatmap(fig[1,3], abs.((true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2) .- (states_adj[t].u[:, 1:end-1].^2 .+ states_adj[t].v[1:end-1, :].^2)),
     colormap=:amp,
     colorrange=(0,
     maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}(+)|")
     )
-    Colorbar(fig1[1,4], hm2)
+    Colorbar(fig[1,4], hm2)
 
-    t = 448
-    ax3, hm3 = heatmap(fig[2, 1], ekf_avgu[end][:, 1:end-1].^2 .+ ekf_avgv[end][1:end-1, :].^2,
+    ax3, hm3 = heatmap(fig[2, 1], ekf_avgu[t][:, 1:end-1].^2 .+ ekf_avgv[t][1:end-1, :].^2,
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}"),
     colorrange=(0,
     maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
     );
     Colorbar(fig[2,2], hm3)
+
     ax4, hm4 = heatmap(fig[2,3], abs.((true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2) .- (ekf_avgu[t][:, 1:end-1].^2 .+ ekf_avgv[t][1:end-1, :].^2)),
     colormap=:amp,
     colorrange=(0,
