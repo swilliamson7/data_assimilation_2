@@ -67,8 +67,8 @@ function hourly_save_run(S_true; compute_freq=false)
     # store initial conditions of sst for relaxation
     copyto!(Diag.SemiLagrange.sst_ref,sst)
     j = 1
-
-    for t = 1:S_true.grid.nt
+    t = 0
+    for i = 1:S_true.grid.nt
 
         Diag = S_true.Diag
         Prog = S_true.Prog
@@ -89,7 +89,6 @@ function hourly_save_run(S_true; compute_freq=false)
     
         @unpack nt,dtint = S_true.grid
         @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S_true.grid
-        i = S_true.parameters.i
 
         # ghost point copy for boundary conditions
         ShallowWaters.ghost_points!(u,v,η,S_true)
@@ -179,7 +178,7 @@ function hourly_save_run(S_true; compute_freq=false)
         ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
 
         # storing hourly states, will make it easier to compute KE spectra later
-        if t ∈ 9:9:S_true.grid.nt
+        if i ∈ 9:9:S_true.grid.nt
             temp1 = ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)
             push!(true_states, temp1)
@@ -187,7 +186,7 @@ function hourly_save_run(S_true; compute_freq=false)
 
         if compute_freq
 
-            if t ∈ 10:10:S_true.grid.nt
+            if i ∈ 10:10:S_true.grid.nt
 
                 tempu = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                     ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).u)
@@ -1010,7 +1009,7 @@ function exp4_generate_data(S, data_spots, sigma_data)
 
 end
 
-function one_step_function(S)
+function one_step_function(S, i)
 
     Diag = S.Diag
     Prog = S.Prog
@@ -1032,7 +1031,6 @@ function one_step_function(S)
     @unpack nt,dtint = S.grid
     @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S.grid
     t = S.t
-    i = S.parameters.i
 
     # ghost point copy for boundary conditions
     ShallowWaters.ghost_points!(u,v,η,S)

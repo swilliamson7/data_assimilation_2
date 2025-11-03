@@ -1,13 +1,10 @@
 """
-Loss is difference of η with data for η, as well as a time-averaged η difference
-The data assimilation is run assuming flat bottom-topography, true model has ridged
-bottom topography
-All initial conditions are perturbed
-Daily data temporally, all locations spatially
-Gradient will modify entire initial condition despite only having eta information
+Loss is the difference of u, v, and η with data for same fields
+Aim to tune the wind stress field, starting from a weakened wind-stress
+Can play with how sparse the data is both temporally and spatially
 """
 
-mutable struct exp5_adj_model{T, S} <: AbstractNLPModel{T,S}
+mutable struct exp_windstress_adjmodel{T, S} <: AbstractNLPModel{T,S}
     meta::NLPModelMeta{T,S}
     counters::Counters
     S::ShallowWaters.ModelSetup{T,T}        # model structure
@@ -15,8 +12,6 @@ mutable struct exp5_adj_model{T, S} <: AbstractNLPModel{T,S}
     v_nohalo::Array{T,2}
     J::Float64                              # objective value
     data::Array{T, 2}
-    avg_eta::Array{T, 2}                    # time-averaged true eta
-    pred_avg_eta::Array{T,2}                # predicted time-averaged eta
     data_steps::StepRange{Int, Int}         # when data is assimilated temporally
     data_spots::Array{Int,1}                # where data is located spatially, grid coordinates
     j::Int                                  # for keeping track of location in data
@@ -24,7 +19,7 @@ mutable struct exp5_adj_model{T, S} <: AbstractNLPModel{T,S}
     t::Int64                                # model time (e.g. dt * i)
 end
 
-mutable struct exp5_ekf_model{T}
+mutable struct exp_windstress_ekfmodel{T}
     S::ShallowWaters.ModelSetup{T,T}        # model struct for adjoint
     N::Int                                  # number of ensemble members
     data::Array{T, 2}                       # data to be assimilated
@@ -33,12 +28,13 @@ mutable struct exp5_ekf_model{T}
     data_steps::StepRange{Int, Int}         # when data is assimilated
     data_spots::Array{Int, 1}               # where data is located, grid coordinates
     j::Int                                  # for keeping track of location in data
+    t::Int64                                # model timestep (i * Δt)
 end
 
-function exp5_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, data_spots)
+function windstress_model_setup(T, Ndays, N, sigma_data, sigma_initcond, sigma_forcing, data_steps, data_spots)
 
     P_pred = ShallowWaters.Parameter(T=T;
-        output=false,
+        Fx0 = sigma_forcing * .012,
         L_ratio=1,
         g=9.81,
         H=500,
@@ -53,7 +49,7 @@ function exp5_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
         nx=128,
         Ndays=Ndays,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_postspinup_1year_ridgebottomtopography/",
+        initpath="./data_files_forkf/128_postspinup_1year_noslipbc_epsetup",
         init_starti=1
     )
 
@@ -63,14 +59,17 @@ function exp5_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
     println("norm of true v ", norm(S_true.Prog.v))
     println("norm of true eta ", norm(S_true.Prog.η))
 
-    etadata = ncread("./data_files_forkf/128_postspinup_1year_ridgebottomtopography/eta.nc", "eta")
+    udata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/u.nc", "u")
+    vdata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/v.nc", "v")
+    etadata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/eta.nc", "eta")
 
-    data = zeros(128*128, Ndays)
-    avg_eta = zeros(128,128)
+    data = zeros(128*127*2 + 128^2, Ndays)
+    # this is offset by one because the initial condition is included in the above saved states
     for j = 2:Ndays+1
-        perturbed_data = etadata[:,:,j] .+ sigma_data .* randn(128,128)
-        data[:,j-1] .= vec(perturbed_data)
-        avg_eta += etadata[:,:,j]
+        perturbed_udata = udata[:,:,j] .+ sigma_data .* randn(size(udata[:,:,1]))
+        perturbed_vdata = vdata[:,:,j] .+ sigma_data .* randn(size(vdata[:,:,1]))
+        perturbed_etadata = etadata[:,:,j] .+ sigma_data .* randn(size(etadata[:,:,1]))
+        data[:,j-1] .= [vec(perturbed_udata); vec(perturbed_vdata); vec(perturbed_etadata)]
     end
 
     S_pred = ShallowWaters.model_setup(P_pred)
@@ -127,7 +126,7 @@ function exp5_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
     Prog_pred.u = Prog_pred.u + upert
     Prog_pred.v = Prog_pred.v + vpert
     Prog_pred.η = Prog_pred.η + etapert
-
+    
     uic,vic,etaic = ShallowWaters.add_halo(Prog_pred.u,Prog_pred.v,Prog_pred.η,Prog_pred.sst,S_pred)
     S_pred.Prog.u = uic
     S_pred.Prog.v = vic
@@ -137,25 +136,24 @@ function exp5_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
     println("norm of predicted - true v ", norm(S_pred.Prog.v - S_true.Prog.v))
     println("norm of predicted - true eta ", norm(S_pred.Prog.η - S_true.Prog.η))
 
-    param_guess = [vec(uic); vec(vic); vec(etaic)]
+    param_guess = [vec(S_pred.forcing.Fx)]
 
     Spred = deepcopy(S_pred)
-    # pred_states = exp2_generate_data(Spred,data_steps, data_spots, sigma_data)
+
     pred_states = hourly_save_run(Spred)
 
+    # doing deepcopies to be 100% sure that I'm not messing with the model at any point during setup
     Skf = deepcopy(S_pred)
     Sadj = deepcopy(S_pred)
 
     meta = NLPModelMeta(length(param_guess); ncon=0, nnzh=0,x0=param_guess)
-    adj_model = exp5_adj_model{T, typeof(param_guess)}(meta,
+    adj_model = exp_windstress_adjmodel{T, typeof(param_guess)}(meta,
         Counters(),
         Sadj,
         zeros(size(Prog_pred.u)),
         zeros(size(Prog_pred.v)),
         0.0,
         data,
-        avg_eta,
-        T.(zeros(128,128)),
         data_steps,
         data_spots,
         1,
@@ -163,7 +161,7 @@ function exp5_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
         0.0
     )
 
-    ekf_model = exp5_ekf_model{T}(
+    ekf_model = exp_windstress_ekfmodel{T}(
         Skf,
         N,
         data,
@@ -171,13 +169,19 @@ function exp5_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, d
         sigma_data,
         data_steps,
         data_spots,
-        1
+        1,
+        0
     )
 
     return adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred
 end
 
-function exp5_cpintegrate(chkp, scheme)::Float64
+function windstress_cpintegrate(chkp, scheme)::Float64
+
+    # additions to get derivatives with respect to forcing amplitude
+    forcing = chkp.S.forcing
+    Fx, _ = ShallowWaters.DoubleGyreWind(typeof(forcing).parameters[1], chkp.S.parameters, chkp.S.grid)
+    chkp.S.forcing = ShallowWaters.Forcing(Fx, forcing.Fy, forcing.H, forcing.η_ref, forcing.Fη)
 
     # calculate layer thicknesses for initial conditions
     ShallowWaters.thickness!(chkp.S.Diag.VolumeFluxes.h, chkp.S.Prog.η, chkp.S.forcing.H)
@@ -205,7 +209,7 @@ function exp5_cpintegrate(chkp, scheme)::Float64
     chkp.j = 1
     @ad_checkpoint scheme for chkp.i = 1:chkp.S.grid.nt
 
-        t = chkp.S.t
+        t = chkp.t
         i = chkp.i
 
         # ghost point copy for boundary conditions
@@ -341,40 +345,39 @@ function exp5_cpintegrate(chkp, scheme)::Float64
             chkp.S.Diag.RungeKutta.v0,
             chkp.S
         )
-        end
-
-        t += chkp.S.grid.dtint
-
-        u0rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u0
-        v0rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v0
-        ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
-
-        if i in chkp.data_steps
-            temp = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
-                chkp.S.Prog.u,
-                chkp.S.Prog.v,
-                chkp.S.Prog.η,
-                chkp.S.Prog.sst,
-                chkp.S
-            )...)
-
-            chkp.pred_avg_eta += temp.η
-            chkp.J += sum((vec(temp.η) - chkp.data[:, chkp.j]).^2)
-
-            chkp.j += 1
-        end
-
-        copyto!(chkp.S.Prog.u, chkp.S.Diag.RungeKutta.u0)
-        copyto!(chkp.S.Prog.v, chkp.S.Diag.RungeKutta.v0)
-        copyto!(chkp.S.Prog.η, chkp.S.Diag.RungeKutta.η0)
     end
 
-    chkp.J += sum((chkp.pred_avg_eta .- chkp.avg_eta).^2)
+    t += chkp.S.grid.dtint
+
+    u0rhs = chkp.S.Diag.PrognosticVarsRHS.u .= chkp.S.Diag.RungeKutta.u0
+    v0rhs = chkp.S.Diag.PrognosticVarsRHS.v .= chkp.S.Diag.RungeKutta.v0
+    ShallowWaters.tracer!(i, u0rhs, v0rhs, chkp.S.Prog, chkp.S.Diag, chkp.S)
+
+    if i in chkp.data_steps
+        temp = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
+            chkp.S.Prog.u,
+            chkp.S.Prog.v,
+            chkp.S.Prog.η,
+            chkp.S.Prog.sst,
+            chkp.S
+        )...)
+
+        tempuv = [vec(temp.u); vec(temp.v); vec(temp.η)]
+        chkp.J += sum((tempuv[chkp.data_spots] - chkp.data[:, chkp.j][chkp.data_spots]).^2)
+
+        chkp.j += 1
+    end
+
+    copyto!(chkp.S.Prog.u, chkp.S.Diag.RungeKutta.u0)
+    copyto!(chkp.S.Prog.v, chkp.S.Diag.RungeKutta.v0)
+    copyto!(chkp.S.Prog.η, chkp.S.Diag.RungeKutta.η0)
+    end
+
     return chkp.J
 
 end
 
-function exp5_integrate(chkp)::Float64
+function initcond_integrate(chkp)::Float64
 
     # calculate layer thicknesses for initial conditions
     ShallowWaters.thickness!(chkp.S.Diag.VolumeFluxes.h, chkp.S.Prog.η, chkp.S.forcing.H)
@@ -402,7 +405,7 @@ function exp5_integrate(chkp)::Float64
     chkp.j = 1
     for chkp.i = 1:chkp.S.grid.nt
 
-        t = chkp.S.t
+        t = chkp.t
         i = chkp.i
 
         # ghost point copy for boundary conditions
@@ -555,18 +558,16 @@ function exp5_integrate(chkp)::Float64
                 chkp.S
             )...)
 
-            chkp.pred_avg_eta += temp.η
-            chkp.J += sum((vec(temp.η) - chkp.data[:, chkp.j]).^2)
+        tempuv = [vec(temp.u); vec(temp.v); vec(temp.η)]
+        chkp.J += sum((tempuv[chkp.data_spots] - chkp.data[:, chkp.j][chkp.data_spots]).^2)
+        chkp.j += 1
 
-            chkp.j += 1
         end
 
         copyto!(chkp.S.Prog.u, chkp.S.Diag.RungeKutta.u0)
         copyto!(chkp.S.Prog.v, chkp.S.Diag.RungeKutta.v0)
         copyto!(chkp.S.Prog.η, chkp.S.Diag.RungeKutta.η0)
     end
-
-    chkp.J += sum((chkp.pred_avg_eta .- chkp.avg_eta).^2)
 
     return chkp.J
 
@@ -581,16 +582,17 @@ function NLPModels.obj(model, param_guess)
         H=500,
         wind_forcing_x="double_gyre",
         Lx=3840e3,
-        tracer_advection=false,
-        tracer_relaxation=false,
         seasonal_wind_x=false,
         topography="flat",
         bc="nonperiodic",
+        bottom_drag="quadratic",
+        tracer_advection=false,
+        tracer_relaxation=false,
         α=2,
         nx=128,
-        Ndays=model.S.parameters.T,
+        Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_postspinup_1year_ridgebottomtopography/",
+        initpath="./data_files_forkf/128_postspinup_1year_noslipbc_epsetup",
         init_starti=1
     )
 
@@ -600,29 +602,25 @@ function NLPModels.obj(model, param_guess)
     model.t = 0.0
     model.j = 1
 
-    # modifying initial condition with the halo
+    Prog = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(model.S.Prog.u,
+        model.S.Prog.v,
+        model.S.Prog.η,
+        model.S.Prog.sst,
+        model.S)...
+    )
     current = 1
-    for m in (model.S.Prog.u, model.S.Prog.v, model.S.Prog.η)
+    for m in (Prog.u, Prog.v)#, model.S.Prog.η)
         sz = prod(size(m))
         m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
         current += sz
     end
+    umodified,vmodified,eta_modified = ShallowWaters.add_halo(Prog.u,Prog.v,Prog.η,Prog.sst,model.S)
 
-    # modifying initial condition without the halo
-    # model.u_nohalo .= scale_inv*model.S.Prog.u[halo+1:end-halo,halo+1:end-halo]
-    # model.v_nohalo .= scale_inv*model.S.Prog.v[halo+1:end-halo,halo+1:end-halo]
-    # current = 1
-    # for m in (model.u_nohalo, model.v_nohalo)#, model.S.Prog.η)
-    #     sz = prod(size(m))
-    #     m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
-    #     current += sz
-    # end
+    model.S.Prog.u .= umodified
+    model.S.Prog.v .= vmodified
+    model.S.Prog.η .= eta_modified
 
-    # # add halo back for integrating
-    # model.S.Prog.u .= scale*(cat(zeros(P_temp.T,halo,nuy+2*halo),cat(-model.u_nohalo[:,[2,1]], model.u_nohalo,-model.u_nohalo[:,[end, end-1]],dims=2),zeros(P_temp.T,halo,nuy+2*halo),dims=1))
-    # model.S.Prog.v .= scale*(cat(zeros(P_temp.T,nvx+2*halo,halo),cat(-model.v_nohalo[[2; 1],:],model.v_nohalo,-model.v_nohalo[[end; end-1],:],dims=1),zeros(P_temp.T,nvx+2*halo,halo),dims=2))
-
-    return exp5_integrate(model)
+    return initcond_integrate(model)
 
 end
 
@@ -635,16 +633,17 @@ function NLPModels.grad!(model, param_guess, G)
         H=500,
         wind_forcing_x="double_gyre",
         Lx=3840e3,
-        tracer_advection=false,
-        tracer_relaxation=false,
         seasonal_wind_x=false,
         topography="flat",
         bc="nonperiodic",
+        bottom_drag="quadratic",
+        tracer_advection=false,
+        tracer_relaxation=false,
         α=2,
         nx=128,
-        Ndays=model.S.parameters.T,
+        Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_postspinup_1year_ridgebottomtopography/",
+        initpath="./data_files_forkf/128_postspinup_1year_noslipbc_epsetup",
         init_starti=1
     )
 
@@ -661,78 +660,85 @@ function NLPModels.grad!(model, param_guess, G)
         write_checkpoints=false
     )
 
-    # modifying initial condition with the halo
+    # remove halo
+    Prog = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(model.S.Prog.u,
+        model.S.Prog.v,
+        model.S.Prog.η,
+        model.S.Prog.sst,
+        model.S)...
+    )
+    # place the current guess as the initial conditions
     current = 1
-    for m in (model.S.Prog.u, model.S.Prog.v, model.S.Prog.η)
+    for m in (Prog.u, Prog.v)#, model.S.Prog.η)
         sz = prod(size(m))
         m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
         current += sz
     end
+    umodified,vmodified,etamodified = ShallowWaters.add_halo(Prog.u,Prog.v,Prog.η,Prog.sst,model.S)
 
-    # modifying initial condition without the halo
-    # model.u_nohalo .= scale_inv*model.S.Prog.u[halo+1:end-halo,halo+1:end-halo]
-    # model.v_nohalo .= scale_inv*model.S.Prog.v[halo+1:end-halo,halo+1:end-halo]
-    # current = 1
-    # for m in (model.u_nohalo, model.v_nohalo)#, model.S.Prog.η)
-    #     sz = prod(size(m))
-    #     m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
-    #     current += sz
-    # end
-
-    # add halo back for integrating
-    # model.S.Prog.u .= scale*(cat(zeros(P_temp.T,halo,nuy+2*halo),cat(-model.u_nohalo[:,[2,1]], model.u_nohalo,-model.u_nohalo[:,[end, end-1]],dims=2),zeros(P_temp.T,halo,nuy+2*halo),dims=1))
-    # model.S.Prog.v .= scale*(cat(zeros(P_temp.T,nvx+2*halo,halo),cat(-model.v_nohalo[[2; 1],:],model.v_nohalo,-model.v_nohalo[[end; end-1],:],dims=1),zeros(P_temp.T,nvx+2*halo,halo),dims=2))
+    model.S.Prog.u .= umodified
+    model.S.Prog.v .= vmodified
+    model.S.Prog.η .= etamodified
 
     dmodel = Enzyme.make_zero(model)
 
     J = autodiff(
         set_runtime_activity(Enzyme.ReverseWithPrimal),
-        exp2_cpintegrate,
+        initcond_cpintegrate,
         Active,
         Duplicated(model, dmodel),
         Const(revolve)
     )[2]
 
-    G .= [vec(dmodel.S.Prog.u); vec(dmodel.S.Prog.v); vec(dmodel.S.Prog.η)]
+    dProg = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(dmodel.S.Prog.u,
+        dmodel.S.Prog.v,
+        dmodel.S.Prog.η,
+        dmodel.S.Prog.sst,
+        model.S)...
+    )
+
+    G .= [vec(dProg.u); vec(dProg.v); vec(dProg.η)]#; vec(dmodel.S.Prog.η)]
 
     return nothing
 
 end
 
-function compute_initcond_newoptimizer()
+function run_windstress()
 
     # number of days to run the integration
-    Ndays = 30
+    Ndays = 5
 
     # number of ensemble members, typically leaving this 20
     N = 20
 
-    # trying with extra noisy data
     sigma_data = 0.1
     sigma_initcond = 0.1
     data_steps = 225:224:Ndays*225
 
-    # we want data for η everywhere spatially
-    xeta = 1:1:128
-    yeta = 1:1:128
-    Xeta = xeta' .* ones(length(yeta))
-    Yeta = ones(length(xeta))' .* yeta
+    xu = 30:10:100
+    yu = 40:10:100
+    Xu = xu' .* ones(length(yu))
+    Yu = ones(length(xu))' .* yu
 
     # we want data for all of u, v, and η for this experiment
-    data_spots = Int.(vec((Xeta.-1) .* 128 + Yeta))
+    data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
+    data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
+    data_spots = [data_spotsu; data_spotsv; data_spotseta]
 
     # setup all models
-    adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred = exp5_model_setup(Float64,
+    adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred = windstress_model_setup(Float64,
         Ndays,
         N,
         sigma_data,
         sigma_initcond,
+        sigma_forcing,
         data_steps,
         data_spots
     )
 
     # run the ensemble Kalman filter
-    ekf_avgu, ekf_avgv = run_ensemble_kf(ekf_model, param_guess; udata=false, vdata=false, etadata=true)
+    ekf_avgu, ekf_avgv = run_ensemble_kf(ekf_model, param_guess;udata=true,vdata=true,etadata=true)
 
     # run the adjoint optimization
     qn_options = MadNLP.QuasiNewtonOptions(; max_history=100)
@@ -752,15 +758,15 @@ function compute_initcond_newoptimizer()
         m .= reshape(result.solution[current:(current + sz - 1)], size(m)...)
         current += sz
     end
-    _, states_adj = exp2_generate_data(S_adj, data_steps, data_spots, sigma_data)
+    states_adj = hourly_save_run(S_adj)
 
-    return ekf_avgu, ekf_avgv, G, dS, data, true_states, result, S_adj, states_adj, S_pred, pred_states
+    return ekf_avgu, ekf_avgv, true_states, result, S_adj, states_adj, S_pred, pred_states
 
 end
 
-function exp2_plots()
+function initcond_plots()
 
-    # ekf_avgu, ekf_avgv, G, dS, data, true_states, result, S_adj, states_adj, S_pred, pred_states
+    # ekf_avgu, ekf_avgv, true_states, result, S_adj, states_adj, S_pred, pred_states
 
     # number of days to run the integration
     Ndays = 30
