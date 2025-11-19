@@ -701,7 +701,7 @@ end
 function run_initcond(Ndays, sigma_data, sigma_initcond)
 
     # number of ensemble members, typically leaving this 20
-    N = 10
+    N = 20
 
     # daily data
     data_steps = 225:224:Ndays*225
@@ -725,7 +725,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond)
         sigma_initcond,
         data_steps,
         data_spots
-    )
+    );
 
     # run the ensemble Kalman filter
     ekf_avgu, ekf_avgv, ekf_avgeta = run_ensemble_kf(ekf_model, param_guess;udata=true,vdata=true,etadata=true)
@@ -737,7 +737,8 @@ function run_initcond(Ndays, sigma_data, sigma_initcond)
         # linear_solver=LapackCPUSolver,
         hessian_approximation=MadNLP.CompactLBFGS,
         quasi_newton_options=qn_options,
-        max_iter=200
+        max_iter=150,
+        acceptable_tol = 1e-3
     )
 
     # integrate with the result from the optimization
@@ -769,11 +770,11 @@ function initcond_plots()
     Ndays = 30
 
     # number of ensemble members, typically leaving this 20
-    N = 10
+    N = 20
 
     # trying with extra noisy data
-    sigma_data = 0.0001
-    sigma_initcond = 0.0001
+    sigma_data = 0.1
+    sigma_initcond = 0.1
     data_steps = 225:224:Ndays*225
 
     xu = 30:10:100
@@ -791,25 +792,26 @@ function initcond_plots()
     vdata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/v.nc", "v");
     etadata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/eta.nc", "eta");
 
-    ekf_avgu = load_object("./initcond_dailydata_allofuveta/ekf_avgu_initcond.jld2");
-    ekf_avgv = load_object("./initcond_dailydata_allofuveta/ekf_avgv_initcond.jld2");
+    ekf_avgu = load_object("./initcond_dailydata_allofuveta/ekfavgu_initcond_111825.jld2");
+    ekf_avgv = load_object("./initcond_dailydata_allofuveta/ekfavgv_initcond_111825.jld2");
     states_adj = load_object("./initcond_dailydata_allofuveta/states_adj_initcond.jld2");
     states_pred = load_object("./initcond_dailydata_allofuveta/pred_states_initcond.jld2");
 
     # location of data spatially on true fields
     fig = Figure(size=(1000, 500));
-    ax1, hm1 = heatmap(fig[1,1], true_states[end].u,
+    day = 31
+    ax1, hm1 = heatmap(fig[1,1], udata[:,:,day],
         colormap=:balance,
-        colorrange=(-maximum(true_states[end].u),
-        maximum(true_states[end].u)),
+        colorrange=(-maximum(abs.(udata[:,:,day])),
+        maximum(abs.(udata[:,:,day]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"u(t = 30 \; \text{days}, x, y)"),
     );
     scatter!(ax1, vec(Xu), vec(Yu), color=:green);
     Colorbar(fig[1,2], hm1)
-    ax2, hm2 = heatmap(fig[1,3], true_states[end].v,
+    ax2, hm2 = heatmap(fig[1,3], vdata[:,:,day],
         colormap=:balance,
-        colorrange=(-maximum(true_states[end].v),
-        maximum(true_states[end].v)),
+        colorrange=(-maximum(abs.(vdata[:,:,day])),
+        maximum(abs.(vdata[:,:,day]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)"),
     );
     scatter!(ax2, vec(Xu), vec(Yu), color=:green);
@@ -821,7 +823,7 @@ function initcond_plots()
     ax1, hm1 = heatmap(fig[1,1],
         states_pred[t].u,
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,30])), maximum(abs.(udata[:,:,30]))),
+        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, -)")
     )
     Colorbar(fig[1,2], hm1)
@@ -829,73 +831,126 @@ function initcond_plots()
     ax2, hm2 = heatmap(fig[1,3], 
         states_pred[t].v,
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,30])), maximum(abs.(udata[:,:,30]))),
+        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, -)")
     );
     Colorbar(fig[1,4], hm2)
 
-    # results for u and v fields
+    # results for u and v fields next to the prediction
     fig = Figure(size=(1000,600));
     t = 748
 
     ax1, hm1 = heatmap(fig[1,1],
-        # udata[:,:,30],
+        # udata[:,:,31],
         states_pred[t].u,
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,30])), maximum(abs.(udata[:,:,30]))),
+        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, -)")
     )
     Colorbar(fig[1,2], hm1)
 
-    ax2, hm2 = heatmap(fig[1,3], 
-        states_adj[t].u,
-        colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,30])), maximum(abs.(udata[:,:,30]))),
-        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, +)")
-    );
-    Colorbar(fig[1,4], hm2)
-
-    ax3, hm3 = heatmap(fig[1, 5], 
+    ax3, hm3 = heatmap(fig[1, 3], 
         ekf_avgu[t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,30])), maximum(abs.(udata[:,:,30]))),
+        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y)")
     );
-    Colorbar(fig[1,6], hm3)
+    Colorbar(fig[1,4], hm3)
+
+    ax2, hm2 = heatmap(fig[1,5], 
+        states_adj[t].u,
+        colormap=:balance,
+        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, +)")
+    );
+    Colorbar(fig[1,6], hm2)
 
     ax4, hm4 = heatmap(fig[2,1],
-        # vdata[:,:,30],
+        # vdata[:,:,31],
         states_pred[t].v,
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,30])), maximum(abs.(vdata[:,:,30]))),
+        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, -)")
     )
     Colorbar(fig[2,2], hm4)
 
-    ax5, hm5 = heatmap(fig[2,3], 
-        states_adj[t].v,
-        colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,30])), maximum(abs.(vdata[:,:,30]))),
-        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
-    );
-    Colorbar(fig[2,4], hm5)
-
-    ax6, hm6 = heatmap(fig[2, 5], 
+    ax6, hm6 = heatmap(fig[2, 3], 
         ekf_avgv[t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,30])), maximum(abs.(vdata[:,:,30]))),
+        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
     );
-    Colorbar(fig[2,6], hm6)
+    Colorbar(fig[2,4], hm6)
+
+    ax5, hm5 = heatmap(fig[2,5], 
+        states_adj[t].v,
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
+    );
+    Colorbar(fig[2,6], hm5)
+
+    # results next to the true fields
+    fig = Figure(size=(1000,600));
+    t = 748
+
+    ax1, hm1 = heatmap(fig[1,1],
+        udata[:,:,31],
+        colormap=:balance,
+        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"u(t = 30 \; \text{days}, x, y)")
+    )
+    Colorbar(fig[1,2], hm1)
+
+    ax3, hm3 = heatmap(fig[1, 3], 
+        ekf_avgu[t],
+        colormap=:balance,
+        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y)")
+    );
+    Colorbar(fig[1,4], hm3)
+
+    ax2, hm2 = heatmap(fig[1,5], 
+        states_adj[t].u,
+        colormap=:balance,
+        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, +)")
+    );
+    Colorbar(fig[1,6], hm2)
+
+    ax4, hm4 = heatmap(fig[2,1],
+        vdata[:,:,31],
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)")
+    )
+    Colorbar(fig[2,2], hm4)
+
+    ax6, hm6 = heatmap(fig[2, 3], 
+        ekf_avgv[t],
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
+    );
+    Colorbar(fig[2,4], hm6)
+
+    ax5, hm5 = heatmap(fig[2,5], 
+        states_adj[t].v,
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
+    );
+    Colorbar(fig[2,6], hm5)
+
 
     # results for v field
     fig = Figure(size=(1000,300));
     t = 748
 
     ax0, hm0 = heatmap(fig[1,1],
-        vdata[:,:,30],
+        vdata[:,:,31],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,30])), maximum(abs.(vdata[:,:,30]))),
+        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)")
     )
     Colorbar(fig[1,2], hm0)
@@ -903,7 +958,7 @@ function initcond_plots()
     ax1, hm1 = heatmap(fig[1,3], 
         states_adj[t].v,
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,30])), maximum(abs.(vdata[:,:,30]))),
+        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
     );
     Colorbar(fig[1,4], hm1)
@@ -911,13 +966,13 @@ function initcond_plots()
     ax2, hm2 = heatmap(fig[1, 5], 
         ekf_avgv[t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,30])), maximum(abs.(vdata[:,:,30]))),
+        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig[1,6], hm2)
 
     ax2, hm2 = heatmap(fig[1,3],
-        abs.(vdata[:,:,30] .- states_adj[t].v),
+        abs.(vdata[:,:,31] .- states_adj[t].v),
         colormap=:amp,
         # colorrange=(0,
         # 1.5),
@@ -926,7 +981,7 @@ function initcond_plots()
     Colorbar(fig[1,4], hm2)
 
 
-    ax4, hm4 = heatmap(fig[2,3], abs.(vdata[:,:,30] .- ekf_avgv[t]),
+    ax4, hm4 = heatmap(fig[2,3], abs.(vdata[:,:,31] .- ekf_avgv[t]),
         colormap=:amp,
         # colorrange=(0,
         # 1.5),
@@ -937,29 +992,29 @@ function initcond_plots()
     # energy plots
 
     fig = Figure(size=(600, 500));
-    ax1, hm1 = heatmap(fig[1,1], (true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2),
+    ax1, hm1 = heatmap(fig[1,1], (udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2),
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\mathcal{E}"),
     colorrange=(0,
-    maximum(true_states[end].u[:, 1:end-1].^2 .+ true_states[end].v[1:end-1, :].^2))
+    maximum(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2))
     );
     Colorbar(fig[1,2], hm1)
 
     fig = Figure(size=(800, 700));
     t = 748
 
-    ax1, hm1 = heatmap(fig[1,1], pred_states[t].u[:, 1:end-1].^2 .+ pred_states[t].v[1:end-1, :].^2,
+    ax1, hm1 = heatmap(fig[1,1], states_pred[t].u[:, 1:end-1].^2 .+ states_pred[t].v[1:end-1, :].^2,
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}(+)"),
     colorrange=(0,
-    maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
+    maximum(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2)),
     );
     Colorbar(fig[1,2], hm1)
 
-    ax2, hm2 = heatmap(fig[1,3], abs.((true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2) .- (states_adj[t].u[:, 1:end-1].^2 .+ states_adj[t].v[1:end-1, :].^2)),
+    ax2, hm2 = heatmap(fig[1,3], abs.(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2 .- (states_adj[t].u[:, 1:end-1].^2 .+ states_adj[t].v[1:end-1, :].^2)),
     colormap=:amp,
     colorrange=(0,
-    maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
+    maximum(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}(+)|")
     )
     Colorbar(fig[1,4], hm2)
@@ -968,14 +1023,14 @@ function initcond_plots()
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}"),
     colorrange=(0,
-    maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
+    maximum(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2)),
     );
     Colorbar(fig[2,2], hm3)
 
-    ax4, hm4 = heatmap(fig[2,3], abs.((true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2) .- (ekf_avgu[t][:, 1:end-1].^2 .+ ekf_avgv[t][1:end-1, :].^2)),
+    ax4, hm4 = heatmap(fig[2,3], abs.(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2 .- (ekf_avgu[t][:, 1:end-1].^2 .+ ekf_avgv[t][1:end-1, :].^2)),
     colormap=:amp,
     colorrange=(0,
-    maximum(true_states[t].u[:, 1:end-1].^2 .+ true_states[t].v[1:end-1, :].^2)),
+    maximum(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}|")
     )
     Colorbar(fig[2,4], hm4)
