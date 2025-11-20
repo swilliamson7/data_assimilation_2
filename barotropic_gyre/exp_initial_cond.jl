@@ -35,6 +35,7 @@ function initcond_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_step
 
     P_pred = ShallowWaters.Parameter(T=T;
         output=false,
+        output_dt=1,
         L_ratio=1,
         g=9.81,
         H=500,
@@ -45,11 +46,13 @@ function initcond_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_step
         seasonal_wind_x=false,
         topography="flat",
         bc="nonperiodic",
+        bottom_drag="quadratic",
         α=2,
         nx=128,
         Ndays=Ndays,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_postspinup_1year_noslipbc_epsetup",
+        # initpath="./data_files/128_spinup_noforcing/"
+        initpath="./data_files/128_postspinup_30days_hourlysaves/",
         init_starti=1
     )
 
@@ -59,9 +62,9 @@ function initcond_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_step
     println("norm of true v ", norm(S_true.Prog.v))
     println("norm of true eta ", norm(S_true.Prog.η))
 
-    udata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/u.nc", "u")
-    vdata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/v.nc", "v")
-    etadata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/eta.nc", "eta")
+    udata = ncread("./data_files/128_postspinup_30days_hourlysaves/u.nc", "u")
+    vdata = ncread("./data_files/128_postspinup_30days_hourlysaves/v.nc", "v")
+    etadata = ncread("./data_files/128_postspinup_30days_hourlysaves/eta.nc", "eta")
 
     data = zeros(128*127*2 + 128^2, Ndays)
     # this is offset by one because the initial condition is included in the above saved states
@@ -587,7 +590,7 @@ function NLPModels.obj(model, param_guess)
         nx=128,
         Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_postspinup_1year_noslipbc_epsetup",
+        initpath="./data_files/128_postspinup_30days_hourlysaves/",
         init_starti=1
     )
 
@@ -638,7 +641,7 @@ function NLPModels.grad!(model, param_guess, G)
         nx=128,
         Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_postspinup_1year_noslipbc_epsetup",
+        initpath="./data_files/128_postspinup_30days_hourlysaves/",
         init_starti=1
     )
 
@@ -743,6 +746,8 @@ function run_initcond(Ndays, sigma_data, sigma_initcond)
 
     # integrate with the result from the optimization
     S_adj = ShallowWaters.model_setup(P_pred)
+    S_adj.parameters.output=true
+    S_adj.parameters.output_dt=1
     uic = S_adj.parameters.T.(zeros(127,128))
     vic = S_adj.parameters.T.(zeros(128,127))
     etaic = S_adj.parameters.T.(zeros(128,128))
@@ -756,7 +761,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond)
     S_adj.Prog.u = utuned
     S_adj.Prog.v = vtuned
     S_adj.Prog.η = etatuned
-    states_adj = hourly_save_run(S_adj)
+    states_adj = ShallowWaters.time_integration(S_adj)
 
     return ekf_avgu, ekf_avgv, ekf_avgeta, result, S_adj, states_adj, S_pred, states_pred
 
@@ -1067,24 +1072,26 @@ function initcond_plots()
     up_ekf = zeros(65, 673)
     vp_ekf = zeros(65, 673)
 
-    up_true = zeros(65, 673)
-    vp_true = zeros(65, 673)
+    up_true = zeros(65, 366)
+    vp_true = zeros(65, 366)
 
     up_pred = zeros(65, 673)
     vp_pred = zeros(65, 673)
 
-    for t = 1:498
-        # up_adj[:,t] = power(periodogram(states_adj[t].u; radialavg=true))
-        # vp_adj[:,t] = power(periodogram(states_adj[t].v; radialavg=true))
+    for t = 1:673
+        up_adj[:,t] = power(periodogram(states_adj[t].u; radialavg=true))
+        vp_adj[:,t] = power(periodogram(states_adj[t].v; radialavg=true))
 
         up_ekf[:,t] = power(periodogram(ekf_avgu[t]; radialavg=true))
         vp_ekf[:,t] = power(periodogram(ekf_avgv[t]; radialavg=true))
 
-        up_true[:,t] = power(periodogram(true_states[t].u; radialavg=true))
-        vp_true[:,t] = power(periodogram(true_states[t].v; radialavg=true))
+        up_pred[:,t] = power(periodogram(states_pred[t].u; radialavg=true))
+        vp_pred[:,t] = power(periodogram(states_pred[t].v; radialavg=true))
+    end
 
-        up_pred[:,t] = power(periodogram(pred_states[t].u; radialavg=true))
-        vp_pred[:,t] = power(periodogram(pred_states[t].v; radialavg=true))
+    for j = 1:366
+        up_true[:,j] = power(periodogram(udata[:,:,j]; radialavg=true))
+        vp_true[:,j] = power(periodogram(vdata[:,:,j]; radialavg=true))
     end
 
     fftu_adj = fft(up_adj,[2])
@@ -1107,7 +1114,7 @@ function initcond_plots()
 
     fftu_true = fft(up_ekf,[2])
     fftv_true = fft(vp_ekf,[2])
-    true_wl = 1 ./ freq(periodogram(true_states[3].u; radialavg=true));
+    true_wl = 1 ./ freq(periodogram(udata[:,:,3]; radialavg=true));
     trueu_freq = LinRange(0, 672, 673)
     trueu_freq = trueu_freq ./ 673
     trueu_freq = 1 ./ trueu_freq 
@@ -1116,7 +1123,7 @@ function initcond_plots()
 
     fftu_pred = fft(up_ekf,[2])
     fftv_pred = fft(vp_ekf,[2])
-    pred_wl = 1 ./ freq(periodogram(true_states[3].u; radialavg=true));
+    pred_wl = 1 ./ freq(periodogram(udata[:,:,3]; radialavg=true));
     predu_freq = LinRange(0, 672, 673)
     predu_freq = trueu_freq ./ 673
     predu_freq = 1 ./ trueu_freq 
@@ -1126,23 +1133,35 @@ function initcond_plots()
     heatmap(adj_wl, adju_freq, abs.(fftu_adj) + abs.(fftv_adj); colorscale=log10, axis=(xscale=log10, yscale=log10))
 
     # one dimensional figures
-    fig2 = Figure(size=(800, 500));
+    fig = Figure(size=(800, 500));
+    t = 9*24
+    lines(fig[1,1], adj_wl[2:end], up_true[2:end,2] + vp_true[2:end,2], label="Truth", axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
+    lines!(fig[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
+    lines!(fig[1,1], true_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint")
+    lines!(fig[1,1], pred_wl[2:end], up_pred[2:end,t] + vp_pred[2:end,t], linestyle=:dash, label="Prediction")
+    axislegend()
+    
+    # trying to see if data had any impact on the ekf of the above
+    fig = Figure(size=(800, 500));
     t = 673
-    # lines(fig2[1,1], adj_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint", axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
-    lines(fig2[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
-    lines!(fig2[1,1], true_wl[2:end], up_true[2:end,t] + vp_true[2:end,t], label="Truth")
-    lines!(fig2[1,1], pred_wl[2:end], up_pred[2:end,t] + vp_pred[2:end,t], linestyle=:dash, label="Prediction")
+    lines(fig[1,1], adj_wl[2:end], up_true[2:end,end] + vp_true[2:end,end], label="Truth", 
+        axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2])
+    )
+    vlines!(ax2, [1, 2/224, 3/224, 4/224], color=:gray75, linestyle=:dot);
+    lines!(fig[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
+    lines!(fig[1,1], true_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint")
+    lines!(fig[1,1], pred_wl[2:end], up_pred[2:end,t] + vp_pred[2:end,t], linestyle=:dash, label="Prediction")
     axislegend()
 
     # time-averaged wavenumber spectrum
-    fig2 = Figure(size=(800, 500));
-    lines(fig2[1,1], adj_wl[2:end], vec(sum(up_adj[2:end,:] + vp_adj[2:end,:], dims=2)) ./ 64,
-        label="Adjoint",
-        axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2])
-    )
-    lines!(fig2[1,1], ekf_wl[2:end], vec(sum(up_ekf[2:end,:] + vp_ekf[2:end,:], dims=2))./ 64, label="EKF")
-    lines!(fig2[1,1], true_wl[2:end], vec(sum(up_true[2:end,:] + vp_true[2:end,:], dims=2)) ./64 , label="Truth")
-    lines!(fig2[1,1], pred_wl[2:end], up_pred[2:end,t] + vp_pred[2:end,t], linestyle=:dash, label="Prediction")
+    fig = Figure(size=(800, 500));
+    t = 673
+    lines(fig[1,1], adj_wl[2:end], vec(sum(up_true[2:end,2:31] + vp_true[2:end,2:31], dims=2)), 
+        label="Truth", 
+        axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
+    lines!(fig[1,1], ekf_wl[2:end], vec(sum(up_ekf[2:end,:] + vp_ekf[2:end,:],dims=2)), label="EKF")
+    lines!(fig[1,1], true_wl[2:end], vec(sum(up_adj[2:end,:] + vp_adj[2:end,:],dims=2)), label="Adjoint")
+    lines!(fig[1,1], pred_wl[2:end], vec(sum(up_pred[2:end,:] + vp_pred[2:end,:],dims=2)), linestyle=:dash, label="Prediction")
     axislegend()
 
     fig2 = Figure(size=(800, 500));
