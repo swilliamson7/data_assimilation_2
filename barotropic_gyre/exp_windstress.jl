@@ -49,7 +49,7 @@ function windstress_model_setup(T, Ndays, N, sigma_data, sigma_initcond, sigma_f
         nx=128,
         Ndays=Ndays,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_postspinup_1year_noslipbc_epsetup",
+        initpath="./data_files/128_postspinup_1year_noslipbc_epsetup",
         init_starti=1
     )
 
@@ -59,9 +59,9 @@ function windstress_model_setup(T, Ndays, N, sigma_data, sigma_initcond, sigma_f
     println("norm of true v ", norm(S_true.Prog.v))
     println("norm of true eta ", norm(S_true.Prog.η))
 
-    udata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/u.nc", "u")
-    vdata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/v.nc", "v")
-    etadata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/eta.nc", "eta")
+    udata = ncread("./data_files/128_postspinup_1year_noslipbc_epsetup/u.nc", "u")
+    vdata = ncread("./data_files/128_postspinup_1year_noslipbc_epsetup/v.nc", "v")
+    etadata = ncread("./data_files/128_postspinup_1year_noslipbc_epsetup/eta.nc", "eta")
 
     data = zeros(128*127*2 + 128^2, Ndays)
     # this is offset by one because the initial condition is included in the above saved states
@@ -592,7 +592,7 @@ function NLPModels.obj(model, param_guess)
         nx=128,
         Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_postspinup_1year_noslipbc_epsetup",
+        initpath="./data_files/128_postspinup_1year_noslipbc_epsetup",
         init_starti=1
     )
 
@@ -609,7 +609,7 @@ function NLPModels.obj(model, param_guess)
         model.S)...
     )
     current = 1
-    for m in (Prog.u, Prog.v)#, model.S.Prog.η)
+    for m in (Prog.u, Prog.v, model.S.Prog.η)
         sz = prod(size(m))
         m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
         current += sz
@@ -619,6 +619,7 @@ function NLPModels.obj(model, param_guess)
     model.S.Prog.u .= umodified
     model.S.Prog.v .= vmodified
     model.S.Prog.η .= eta_modified
+    model.S.parameters.Fx0 = param_guess[end]
 
     return initcond_integrate(model)
 
@@ -643,7 +644,7 @@ function NLPModels.grad!(model, param_guess, G)
         nx=128,
         Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
-        initpath="./data_files_forkf/128_postspinup_1year_noslipbc_epsetup",
+        initpath="./data_files/128_postspinup_1year_noslipbc_epsetup",
         init_starti=1
     )
 
@@ -669,7 +670,7 @@ function NLPModels.grad!(model, param_guess, G)
     )
     # place the current guess as the initial conditions
     current = 1
-    for m in (Prog.u, Prog.v)#, model.S.Prog.η)
+    for m in (Prog.u, Prog.v, model.S.Prog.η)
         sz = prod(size(m))
         m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
         current += sz
@@ -679,6 +680,7 @@ function NLPModels.grad!(model, param_guess, G)
     model.S.Prog.u .= umodified
     model.S.Prog.v .= vmodified
     model.S.Prog.η .= etamodified
+    model.S.parameters.Fx0 = param_guess[end]
 
     dmodel = Enzyme.make_zero(model)
 
@@ -697,7 +699,7 @@ function NLPModels.grad!(model, param_guess, G)
         model.S)...
     )
 
-    G .= [vec(dProg.u); vec(dProg.v); vec(dProg.η)]#; vec(dmodel.S.Prog.η)]
+    G .= [vec(dProg.u); vec(dProg.v); vec(dProg.η); dmodel.S.parameters.Fx0]
 
     return nothing
 

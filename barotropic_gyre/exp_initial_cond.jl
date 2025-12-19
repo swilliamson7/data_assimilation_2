@@ -31,11 +31,11 @@ mutable struct exp_initcond_ekfmodel{T}
     t::Int64                                # model timestep (i * Δt)
 end
 
-function initcond_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_steps, data_spots)
+function initcond_model_setup(T, Ndays, N, data, sigma_data, sigma_initcond, data_steps, data_spots)
 
     P_pred = ShallowWaters.Parameter(T=T;
         output=false,
-        output_dt=1,
+        output_dt=24,
         L_ratio=1,
         g=9.81,
         H=500,
@@ -52,7 +52,7 @@ function initcond_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_step
         Ndays=Ndays,
         initial_cond="ncfile",
         # initpath="./data_files/128_spinup_noforcing/"
-        initpath="./data_files/128_postspinup_30days_hourlysaves/",
+        initpath="./data_files/128_postspinup_30days_dailysaves/",
         init_starti=1
     )
 
@@ -61,19 +61,6 @@ function initcond_model_setup(T, Ndays, N, sigma_data, sigma_initcond, data_step
     println("norm of true u ", norm(S_true.Prog.u))
     println("norm of true v ", norm(S_true.Prog.v))
     println("norm of true eta ", norm(S_true.Prog.η))
-
-    udata = ncread("./data_files/128_postspinup_30days_hourlysaves/u.nc", "u")
-    vdata = ncread("./data_files/128_postspinup_30days_hourlysaves/v.nc", "v")
-    etadata = ncread("./data_files/128_postspinup_30days_hourlysaves/eta.nc", "eta")
-
-    data = zeros(128*127*2 + 128^2, Ndays)
-    # this is offset by one because the initial condition is included in the above saved states
-    for j = 2:Ndays+1
-        perturbed_udata = udata[:,:,j] .+ sigma_data .* randn(size(udata[:,:,1]))
-        perturbed_vdata = vdata[:,:,j] .+ sigma_data .* randn(size(vdata[:,:,1]))
-        perturbed_etadata = etadata[:,:,j] .+ sigma_data .* randn(size(etadata[:,:,1]))
-        data[:,j-1] .= [vec(perturbed_udata); vec(perturbed_vdata); vec(perturbed_etadata)]
-    end
 
     S_pred = ShallowWaters.model_setup(P_pred)
 
@@ -703,14 +690,39 @@ end
 
 function run_initcond(Ndays, sigma_data, sigma_initcond)
 
+    P = ShallowWaters.Parameter(T = Float64;
+        output=false,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        seasonal_wind_x=false,
+        topography="flat",
+        bc="nonperiodic",
+        bottom_drag="quadratic",
+        tracer_advection=false,
+        tracer_relaxation=false,
+        α=2,
+        nx=128,
+        Ndays=Ndays,
+        initial_cond="ncfile",
+        initpath="./data_files/128_postspinup_30days_hourlysaves/",
+        init_starti=1
+    )
+    S = ShallowWaters.model_setup(P)
+
     # number of ensemble members, typically leaving this 20
     N = 20
 
     # daily data
-    data_steps = 225:224:Ndays*225
+    # data_steps = 225:224:Ndays*225
 
-    xu = 30:10:100
-    yu = 40:10:100
+    # hourly data
+    data_steps = 10:9:S.grid.nt
+
+    xu = 15:15:128
+    yu = 15:15:128
     Xu = xu' .* ones(length(yu))
     Yu = ones(length(xu))' .* yu
 
@@ -720,10 +732,28 @@ function run_initcond(Ndays, sigma_data, sigma_initcond)
     data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
     data_spots = [data_spotsu; data_spotsv; data_spotseta]
 
+    # udata = ncread("./data_files/128_postspinup_30days_dailysaves/u.nc", "u")
+    # vdata = ncread("./data_files/128_postspinup_30days_dailysaves/v.nc", "v")
+    # etadata = ncread("./data_files/128_postspinup_30days_dailysaves/eta.nc", "eta")
+
+    udata = ncread("./data_files/128_postspinup_90days_hourlysaves/u.nc", "u")
+    vdata = ncread("./data_files/128_postspinup_90days_hourlysaves/v.nc", "v")
+    etadata = ncread("./data_files/128_postspinup_90days_hourlysaves/eta.nc", "eta")
+
+    M = length(data_steps)
+    data = zeros(128*127*2 + 128^2, M)
+    for k = 1:M
+        perturbed_udata = udata[:,:,k+1] .+ sigma_data .* randn(size(udata[:,:,1]))
+        perturbed_vdata = vdata[:,:,k+1] .+ sigma_data .* randn(size(vdata[:,:,1]))
+        perturbed_etadata = etadata[:,:,k+1] .+ sigma_data .* randn(size(etadata[:,:,1]))
+        data[:,k] .= [vec(perturbed_udata); vec(perturbed_vdata); vec(perturbed_etadata)]
+    end
+
     # setup all models
     adj_model, ekf_model, param_guess, S_pred, states_pred, P_pred = initcond_model_setup(Float64,
         Ndays,
         N,
+        data,
         sigma_data,
         sigma_initcond,
         data_steps,
@@ -777,13 +807,12 @@ function initcond_plots()
     # number of ensemble members, typically leaving this 20
     N = 20
 
-    # trying with extra noisy data
     sigma_data = 0.1
     sigma_initcond = 0.1
     data_steps = 225:224:Ndays*225
 
-    xu = 30:10:100
-    yu = 40:10:100
+    xu = 10:5:128
+    yu = 10:5:128
     Xu = xu' .* ones(length(yu))
     Yu = ones(length(xu))' .* yu
 
@@ -793,18 +822,21 @@ function initcond_plots()
     data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2);
     data_spots = [data_spotsu; data_spotsv; data_spotseta];
 
-    udata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/u.nc", "u");
-    vdata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/v.nc", "v");
-    etadata = ncread("./data_files_forkf/128_postspinup_1year_noslipbc_epsetup/eta.nc", "eta");
+    udata = ncread("./data_files/128_postspinup_30days_hourlysaves/u.nc", "u");
+    vdata = ncread("./data_files/128_postspinup_30days_hourlysaves/v.nc", "v");
+    etadata = ncread("./data_files/128_postspinup_30days_hourlysaves/eta.nc", "eta");
 
-    ekf_avgu = load_object("./initcond_dailydata_allofuveta/ekfavgu_initcond_111825.jld2");
-    ekf_avgv = load_object("./initcond_dailydata_allofuveta/ekfavgv_initcond_111825.jld2");
-    states_adj = load_object("./initcond_dailydata_allofuveta/states_adj_initcond.jld2");
-    states_pred = load_object("./initcond_dailydata_allofuveta/pred_states_initcond.jld2");
+    ekf_avgu = load_object("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/ekf_avgu_initcond_densedata.jld2");
+    ekf_avgv = load_object("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/ekf_avgv_initcond_densedata.jld2");
+    uadj = ncread("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/states_adj/u.nc", "u");
+    vadj = ncread("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/states_adj/v.nc", "v");
+    etaadj = ncread("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/states_adj/eta.nc", "eta");
+    # states_adj = load_object("./initcond_dailydata_allofuveta/states_adj_initcond.jld2");
+    states_pred = load_object("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/states_pred_initcond_densedata.jld2");
 
     # location of data spatially on true fields
     fig = Figure(size=(1000, 500));
-    day = 31
+    day = 30 + 1
     ax1, hm1 = heatmap(fig[1,1], udata[:,:,day],
         colormap=:balance,
         colorrange=(-maximum(abs.(udata[:,:,day])),
@@ -863,7 +895,8 @@ function initcond_plots()
     Colorbar(fig[1,4], hm3)
 
     ax2, hm2 = heatmap(fig[1,5], 
-        states_adj[t].u,
+        # states_adj[t].u,
+        uadj[:,:,t],
         colormap=:balance,
         colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, +)")
@@ -888,7 +921,8 @@ function initcond_plots()
     Colorbar(fig[2,4], hm6)
 
     ax5, hm5 = heatmap(fig[2,5], 
-        states_adj[t].v,
+        # states_adj[t].v,
+        vadj[:,:,t],
         colormap=:balance,
         colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
@@ -898,9 +932,8 @@ function initcond_plots()
     # results next to the true fields
     fig = Figure(size=(1000,600));
     t = 748
-
     ax1, hm1 = heatmap(fig[1,1],
-        udata[:,:,31],
+        udata[:,:,t+1],
         colormap=:balance,
         colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"u(t = 30 \; \text{days}, x, y)")
@@ -916,7 +949,7 @@ function initcond_plots()
     Colorbar(fig[1,4], hm3)
 
     ax2, hm2 = heatmap(fig[1,5], 
-        states_adj[t].u,
+        uadj[:,:,t+1],
         colormap=:balance,
         colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, +)")
@@ -924,7 +957,7 @@ function initcond_plots()
     Colorbar(fig[1,6], hm2)
 
     ax4, hm4 = heatmap(fig[2,1],
-        vdata[:,:,31],
+        vdata[:,:,t+1],
         colormap=:balance,
         colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)")
@@ -940,7 +973,7 @@ function initcond_plots()
     Colorbar(fig[2,4], hm6)
 
     ax5, hm5 = heatmap(fig[2,5], 
-        states_adj[t].v,
+        vadj[:,:,t+1],
         colormap=:balance,
         colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
@@ -1006,36 +1039,36 @@ function initcond_plots()
     Colorbar(fig[1,2], hm1)
 
     fig = Figure(size=(800, 700));
-    t = 748
+    t = 749
 
-    ax1, hm1 = heatmap(fig[1,1], states_pred[t].u[:, 1:end-1].^2 .+ states_pred[t].v[1:end-1, :].^2,
+    ax1, hm1 = heatmap(fig[1,1], uadj[:, 1:end-1, t].^2 .+ vadj[1:end-1, :, t].^2,
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}(+)"),
     colorrange=(0,
-    maximum(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2)),
+    maximum(udata[:, 1:end-1, t].^2 .+ vdata[1:end-1, :, t].^2)),
     );
     Colorbar(fig[1,2], hm1)
 
-    ax2, hm2 = heatmap(fig[1,3], abs.(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2 .- (states_adj[t].u[:, 1:end-1].^2 .+ states_adj[t].v[1:end-1, :].^2)),
+    ax2, hm2 = heatmap(fig[1,3], abs.(udata[:, 1:end-1, t].^2 .+ vdata[1:end-1, :, t].^2 .- (uadj[:, 1:end-1, t].^2 .+ vadj[1:end-1, :, t].^2)),
     colormap=:amp,
     colorrange=(0,
-    maximum(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2)),
+    maximum(udata[:, 1:end-1, t].^2 .+ vdata[1:end-1, :, t].^2)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}(+)|")
     )
     Colorbar(fig[1,4], hm2)
 
-    ax3, hm3 = heatmap(fig[2, 1], ekf_avgu[t][:, 1:end-1].^2 .+ ekf_avgv[t][1:end-1, :].^2,
+    ax3, hm3 = heatmap(fig[2, 1], ekf_avgu[t-1][:, 1:end-1].^2 .+ ekf_avgv[t-1][1:end-1, :].^2,
     colormap=:amp,
     axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{\mathcal{E}}"),
     colorrange=(0,
-    maximum(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2)),
+    maximum(udata[:, 1:end-1, t].^2 .+ vdata[1:end-1, :, t].^2)),
     );
     Colorbar(fig[2,2], hm3)
 
-    ax4, hm4 = heatmap(fig[2,3], abs.(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2 .- (ekf_avgu[t][:, 1:end-1].^2 .+ ekf_avgv[t][1:end-1, :].^2)),
+    ax4, hm4 = heatmap(fig[2,3], abs.(udata[:, 1:end-1, t].^2 .+ vdata[1:end-1, :, t].^2 .- (ekf_avgu[t-1][:, 1:end-1].^2 .+ ekf_avgv[t-1][1:end-1, :].^2)),
     colormap=:amp,
     colorrange=(0,
-    maximum(udata[:, 1:end-1, 31].^2 .+ vdata[1:end-1, :, 31].^2)),
+    maximum(udata[:, 1:end-1, t].^2 .+ vdata[1:end-1, :, t].^2)),
     axis=(xlabel=L"x", ylabel=L"y", title=L"|\mathcal{E} - \tilde{\mathcal{E}}|")
     )
     Colorbar(fig[2,4], hm4)
@@ -1066,38 +1099,36 @@ function initcond_plots()
 
     ax1 = Axis(fig2[1,1])
 
-    up_adj = zeros(65, 673)
-    vp_adj = zeros(65, 673)
+    up_adj = zeros(65, 748)
+    vp_adj = zeros(65, 748)
 
-    up_ekf = zeros(65, 673)
-    vp_ekf = zeros(65, 673)
+    up_ekf = zeros(65, 748)
+    vp_ekf = zeros(65, 748)
 
-    up_true = zeros(65, 366)
-    vp_true = zeros(65, 366)
+    up_true = zeros(65, 748)
+    vp_true = zeros(65, 748)
 
-    up_pred = zeros(65, 673)
-    vp_pred = zeros(65, 673)
+    up_pred = zeros(65, 748)
+    vp_pred = zeros(65, 748)
 
-    for t = 1:673
-        up_adj[:,t] = power(periodogram(states_adj[t].u; radialavg=true))
-        vp_adj[:,t] = power(periodogram(states_adj[t].v; radialavg=true))
+    for t = 1:748
+        up_adj[:,t] = power(periodogram(uadj[:,:,t+1]; radialavg=true))
+        vp_adj[:,t] = power(periodogram(vadj[:,:,t+1]; radialavg=true))
 
         up_ekf[:,t] = power(periodogram(ekf_avgu[t]; radialavg=true))
         vp_ekf[:,t] = power(periodogram(ekf_avgv[t]; radialavg=true))
 
         up_pred[:,t] = power(periodogram(states_pred[t].u; radialavg=true))
         vp_pred[:,t] = power(periodogram(states_pred[t].v; radialavg=true))
-    end
 
-    for j = 1:366
-        up_true[:,j] = power(periodogram(udata[:,:,j]; radialavg=true))
-        vp_true[:,j] = power(periodogram(vdata[:,:,j]; radialavg=true))
+        up_true[:,t] = power(periodogram(udata[:,:,t+1]; radialavg=true))
+        vp_true[:,t] = power(periodogram(vdata[:,:,t+1]; radialavg=true))
     end
 
     fftu_adj = fft(up_adj,[2])
     fftv_adj = fft(vp_adj,[2])
-    adj_wl = 1 ./ freq(periodogram(states_adj[3].u; radialavg=true));
-    adju_freq = LinRange(0, 672, 673)
+    adj_wl = 1 ./ freq(periodogram(uadj[:,:,3]; radialavg=true));
+    adju_freq = LinRange(0, 747, 748)
     adju_freq = adju_freq ./ 673
     adju_freq = 1 ./ adju_freq 
     adju_freq[1] =  1000
@@ -1106,7 +1137,7 @@ function initcond_plots()
     fftu_ekf = fft(up_ekf,[2])
     fftv_ekf = fft(vp_ekf,[2])
     ekf_wl = 1 ./ freq(periodogram(ekf_avgu[3]; radialavg=true));
-    ekfu_freq = LinRange(0, 672, 673)
+    ekfu_freq = LinRange(0, 747, 748)
     ekfu_freq = ekfu_freq ./ 673
     ekfu_freq = 1 ./ ekfu_freq 
     ekfu_freq[1] =  1000
@@ -1115,7 +1146,7 @@ function initcond_plots()
     fftu_true = fft(up_ekf,[2])
     fftv_true = fft(vp_ekf,[2])
     true_wl = 1 ./ freq(periodogram(udata[:,:,3]; radialavg=true));
-    trueu_freq = LinRange(0, 672, 673)
+    trueu_freq = LinRange(0, 747, 748)
     trueu_freq = trueu_freq ./ 673
     trueu_freq = 1 ./ trueu_freq 
     trueu_freq[1] =  1000
@@ -1124,7 +1155,7 @@ function initcond_plots()
     fftu_pred = fft(up_ekf,[2])
     fftv_pred = fft(vp_ekf,[2])
     pred_wl = 1 ./ freq(periodogram(udata[:,:,3]; radialavg=true));
-    predu_freq = LinRange(0, 672, 673)
+    predu_freq = LinRange(0, 747, 748)
     predu_freq = trueu_freq ./ 673
     predu_freq = 1 ./ trueu_freq 
     predu_freq[1] =  1000
@@ -1134,8 +1165,8 @@ function initcond_plots()
 
     # one dimensional figures
     fig = Figure(size=(800, 500));
-    t = 9*24
-    lines(fig[1,1], adj_wl[2:end], up_true[2:end,2] + vp_true[2:end,2], label="Truth", axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
+    t = 350
+    lines(fig[1,1], adj_wl[2:end], up_true[2:end,t] + vp_true[2:end,t], label="Truth", axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
     lines!(fig[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
     lines!(fig[1,1], true_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint")
     lines!(fig[1,1], pred_wl[2:end], up_pred[2:end,t] + vp_pred[2:end,t], linestyle=:dash, label="Prediction")
@@ -1155,8 +1186,8 @@ function initcond_plots()
 
     # time-averaged wavenumber spectrum
     fig = Figure(size=(800, 500));
-    t = 673
-    lines(fig[1,1], adj_wl[2:end], vec(sum(up_true[2:end,2:31] + vp_true[2:end,2:31], dims=2)), 
+    t = 748
+    lines(fig[1,1], adj_wl[2:end], vec(sum(up_true[2:end,:] + vp_true[2:end,:], dims=2)), 
         label="Truth", 
         axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
     lines!(fig[1,1], ekf_wl[2:end], vec(sum(up_ekf[2:end,:] + vp_ekf[2:end,:],dims=2)), label="EKF")

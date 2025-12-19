@@ -225,7 +225,7 @@ end
 
 function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=false)
 
-    N = model.N
+     N = model.N
     data = model.data
     data_steps = model.data_steps
     data_spots = model.data_spots
@@ -249,7 +249,7 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
     end
 
     Π = (I - (1 / N)*(ones(N) * ones(N)')) / sqrt(N - 1)
-    E = (sigma_data .* randn(length(data_spots), N)) ./ sqrt(N-1)
+    E_fixed = (sigma_data .* randn(length(data_spots), N)) ./ sqrt(N-1)
     W = zeros(N,N)
     T = zeros(N,N)
 
@@ -269,7 +269,7 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
     # For the wind-stress experiment we're going to see the extent to which the EKF
     # can improve the perturbed (incorrect) wind-stress field, so the Fx field is added to
     # the columns in Z
-    Z = zeros(model.S.grid.nu + model.S.grid.nv + model.S.grid.nT, N)
+    Z = zeros(model.S.grid.nu + model.S.grid.nv + model.S.grid.nT + 1, N)
     S_all = []
 
     bred_vectors = compute_bred_vectors(N,sigma_initcond,uic,vic,etaic,model.S.parameters)
@@ -359,10 +359,9 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
         end
 
         if i ∈ data_steps
-
             for k = 1:N
 
-                Z[:, k] = [vec(Progkf[k].u); vec(Progkf[k].v); vec(Progkf[k].η)]
+                Z[:, k] = [vec(Progkf[k].u); vec(Progkf[k].v); vec(Progkf[k].η); S_all[k].parameters.Fx0]
 
                 if udata || udata && vdata || udata && vdata && etadata
                     U[:, k] = Z[Int.(data_spots), k]
@@ -375,7 +374,7 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
             end
 
             d = data[:, j][data_spots]
-            D = d * ones(N)' + sqrt(N - 1) .* E
+            D = d * ones(N)' + sqrt(N - 1) .* E_fixed
             E = D * Π
             A = Z * Π
             Y = U * Π
@@ -385,7 +384,7 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
             tempinv = (temp' * temp) * temp'
             W = Y'*(tempinv)*D̃
 
-            Z = Z + A*W ./ (sqrt(N - 1))
+            Z += A*W ./ (sqrt(N - 1))
 
             for k = 1:N
 
