@@ -52,7 +52,7 @@ function initcond_model_setup(T, Ndays, N, data, sigma_data, sigma_initcond, dat
         Ndays=Ndays,
         initial_cond="ncfile",
         # initpath="./data_files/128_spinup_noforcing/"
-        initpath="./data_files/128_postspinup_30days_dailysaves/",
+        initpath="./data_files/128_postspinup_30days_hourlysaves/",
         init_starti=1
     )
 
@@ -792,7 +792,6 @@ function run_initcond(Ndays, sigma_data, sigma_initcond)
     S_adj.Prog.v = vtuned
     S_adj.Prog.η = etatuned
     states_adj = ShallowWaters.time_integration(S_adj)
-    
 
     return ekf_avgu, ekf_avgv, ekf_avgeta, result, S_adj, states_adj, S_pred, states_pred
 

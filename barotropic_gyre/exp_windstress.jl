@@ -754,13 +754,23 @@ function run_windstress()
 
     # integrate with the result from the optimization
     S_adj = ShallowWaters.model_setup(P_pred)
+    S_adj.parameters.output=true
+    S_adj.parameters.output_dt=1
+    uic = S_adj.parameters.T.(zeros(127,128))
+    vic = S_adj.parameters.T.(zeros(128,127))
+    etaic = S_adj.parameters.T.(zeros(128,128))
     current = 1
-    for m in (S_adj.Prog.u, S_adj.Prog.v, S_adj.Prog.η)
+    for m in (uic, vic, etaic)
         sz = prod(size(m))
         m .= reshape(result.solution[current:(current + sz - 1)], size(m)...)
         current += sz
     end
-    states_adj = hourly_save_run(S_adj)
+    utuned,vtuned,etatuned,_ = ShallowWaters.add_halo(uic,vic,etaic,zeros(128,128),S_adj)
+    S_adj.Prog.u = utuned
+    S_adj.Prog.v = vtuned
+    S_adj.Prog.η = etatuned
+    S_adj.parameters.Fx0 = result.solution[end]
+    states_adj = ShallowWaters.time_integration(S_adj)
 
     return ekf_avgu, ekf_avgv, true_states, result, S_adj, states_adj, S_pred, pred_states
 

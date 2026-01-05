@@ -225,7 +225,7 @@ end
 
 function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=false)
 
-     N = model.N
+    N = model.N
     data = model.data
     data_steps = model.data_steps
     data_spots = model.data_spots
@@ -373,6 +373,8 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
 
             end
 
+            println("Fx0 before data assimilation: ", S_all[1].parameters.Fx0)
+
             d = data[:, j][data_spots]
             D = d * ones(N)' + sqrt(N - 1) .* E_fixed
             E = D * Π
@@ -402,8 +404,11 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
                 S_all[k].Prog.u = u
                 S_all[k].Prog.v = v
                 S_all[k].Prog.η = eta
+                S_all[k].parameters.Fx0 = Z[end, k]
 
             end
+
+            println("Fx0 after data assimilation: ", S_all[1].parameters.Fx0)
 
             j += 1
 
