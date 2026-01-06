@@ -25,16 +25,18 @@ mutable struct exp_windstress_ekfmodel{T}
     data::Array{T, 2}                       # data to be assimilated
     sigma_initcond::T
     sigma_data::T
+    sigma_forcing::T
+    pred_forcing::T
     data_steps::StepRange{Int, Int}         # when data is assimilated
     data_spots::Array{Int, 1}               # where data is located, grid coordinates
     j::Int                                  # for keeping track of location in data
     t::Int64                                # model timestep (i * Δt)
 end
 
-function windstress_model_setup(T, Ndays, N, sigma_data, sigma_initcond, sigma_forcing, data_steps, data_spots)
+function windstress_model_setup(T, Ndays, N, data, sigma_data, sigma_initcond, sigma_forcing, pred_forcing, data_steps, data_spots)
 
     P_pred = ShallowWaters.Parameter(T=T;
-        Fx0 = sigma_forcing * .012,
+        Fx0 = pred_forcing,
         L_ratio=1,
         g=9.81,
         H=500,
@@ -49,7 +51,7 @@ function windstress_model_setup(T, Ndays, N, sigma_data, sigma_initcond, sigma_f
         nx=128,
         Ndays=Ndays,
         initial_cond="ncfile",
-        initpath="./data_files/128_postspinup_1year_noslipbc_epsetup",
+        initpath="./data_files/128_postspinup_30days_hourlysaves/",
         init_starti=1
     )
 
@@ -58,19 +60,6 @@ function windstress_model_setup(T, Ndays, N, sigma_data, sigma_initcond, sigma_f
     println("norm of true u ", norm(S_true.Prog.u))
     println("norm of true v ", norm(S_true.Prog.v))
     println("norm of true eta ", norm(S_true.Prog.η))
-
-    udata = ncread("./data_files/128_postspinup_1year_noslipbc_epsetup/u.nc", "u")
-    vdata = ncread("./data_files/128_postspinup_1year_noslipbc_epsetup/v.nc", "v")
-    etadata = ncread("./data_files/128_postspinup_1year_noslipbc_epsetup/eta.nc", "eta")
-
-    data = zeros(128*127*2 + 128^2, Ndays)
-    # this is offset by one because the initial condition is included in the above saved states
-    for j = 2:Ndays+1
-        perturbed_udata = udata[:,:,j] .+ sigma_data .* randn(size(udata[:,:,1]))
-        perturbed_vdata = vdata[:,:,j] .+ sigma_data .* randn(size(vdata[:,:,1]))
-        perturbed_etadata = etadata[:,:,j] .+ sigma_data .* randn(size(etadata[:,:,1]))
-        data[:,j-1] .= [vec(perturbed_udata); vec(perturbed_vdata); vec(perturbed_etadata)]
-    end
 
     S_pred = ShallowWaters.model_setup(P_pred)
 
@@ -136,7 +125,7 @@ function windstress_model_setup(T, Ndays, N, sigma_data, sigma_initcond, sigma_f
     println("norm of predicted - true v ", norm(S_pred.Prog.v - S_true.Prog.v))
     println("norm of predicted - true eta ", norm(S_pred.Prog.η - S_true.Prog.η))
 
-    param_guess = [vec(S_pred.forcing.Fx)]
+    param_guess = [vec(Prog_pred.u); vec(Prog_pred.v); vec(Prog_pred.η); S_pred.parameters.Fx0]
 
     Spred = deepcopy(S_pred)
 
@@ -167,6 +156,8 @@ function windstress_model_setup(T, Ndays, N, sigma_data, sigma_initcond, sigma_f
         data,
         sigma_initcond,
         sigma_data,
+        sigma_forcing,
+        pred_forcing,
         data_steps,
         data_spots,
         1,
@@ -377,7 +368,7 @@ function windstress_cpintegrate(chkp, scheme)::Float64
 
 end
 
-function initcond_integrate(chkp)::Float64
+function windstress_integrate(chkp)::Float64
 
     # calculate layer thicknesses for initial conditions
     ShallowWaters.thickness!(chkp.S.Diag.VolumeFluxes.h, chkp.S.Prog.η, chkp.S.forcing.H)
@@ -621,7 +612,7 @@ function NLPModels.obj(model, param_guess)
     model.S.Prog.η .= eta_modified
     model.S.parameters.Fx0 = param_guess[end]
 
-    return initcond_integrate(model)
+    return windstress_integrate(model)
 
 end
 
@@ -686,7 +677,7 @@ function NLPModels.grad!(model, param_guess, G)
 
     J = autodiff(
         set_runtime_activity(Enzyme.ReverseWithPrimal),
-        initcond_cpintegrate,
+        windstress_cpintegrate,
         Active,
         Duplicated(model, dmodel),
         Const(revolve)
@@ -701,21 +692,57 @@ function NLPModels.grad!(model, param_guess, G)
 
     G .= [vec(dProg.u); vec(dProg.v); vec(dProg.η); dmodel.S.parameters.Fx0]
 
+    if dmodel.S.parameters.Fx0 === 0.0
+        println("The gradient wrt wind stress amplitude is zero")
+        return
+    end
+
     return nothing
 
 end
 
 function run_windstress()
 
+    P = ShallowWaters.Parameter(T = Float64;
+        output=false,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        seasonal_wind_x=false,
+        topography="flat",
+        bc="nonperiodic",
+        bottom_drag="quadratic",
+        tracer_advection=false,
+        tracer_relaxation=false,
+        α=2,
+        nx=128,
+        Ndays=Ndays,
+        initial_cond="ncfile",
+        initpath="./data_files/128_postspinup_30days_hourlysaves/",
+        init_starti=1
+    )
+    S = ShallowWaters.model_setup(P)
+
     # number of days to run the integration
-    Ndays = 5
+    Ndays = 30
 
     # number of ensemble members, typically leaving this 20
     N = 20
 
     sigma_data = 0.1
-    sigma_initcond = 0.1
+    sigma_initcond = 0.05
+
+    # data is generated with .012
+    pred_forcing = 0.01
+    sigma_forcing = abs(S.parameters.Fx0 - pred_forcing)
+
+    # daily data
     data_steps = 225:224:Ndays*225
+
+    # hourly data
+    # data_steps = 10:9:S.grid.nt
 
     xu = 30:10:100
     yu = 40:10:100
@@ -728,19 +755,34 @@ function run_windstress()
     data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
     data_spots = [data_spotsu; data_spotsv; data_spotseta]
 
+    udata = ncread("./data_files/128_postspinup_90days_hourlysaves/u.nc", "u")
+    vdata = ncread("./data_files/128_postspinup_90days_hourlysaves/v.nc", "v")
+    etadata = ncread("./data_files/128_postspinup_90days_hourlysaves/eta.nc", "eta")
+
+    M = length(data_steps)
+    data = zeros(128*127*2 + 128^2, M)
+    for k = 1:M
+        perturbed_udata = udata[:,:,k+1] .+ sigma_data .* randn(size(udata[:,:,1]))
+        perturbed_vdata = vdata[:,:,k+1] .+ sigma_data .* randn(size(vdata[:,:,1]))
+        perturbed_etadata = etadata[:,:,k+1] .+ sigma_data .* randn(size(etadata[:,:,1]))
+        data[:,k] .= [vec(perturbed_udata); vec(perturbed_vdata); vec(perturbed_etadata)]
+    end
+
     # setup all models
     adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred = windstress_model_setup(Float64,
         Ndays,
         N,
+        data,
         sigma_data,
         sigma_initcond,
         sigma_forcing,
+        pred_forcing,
         data_steps,
         data_spots
     )
 
     # run the ensemble Kalman filter
-    ekf_avgu, ekf_avgv = run_ensemble_kf(ekf_model, param_guess;udata=true,vdata=true,etadata=true)
+    ekf_avgu, ekf_avgv, ekf_avgeta, S_all = windstress_ensemble_kf(ekf_model, param_guess;udata=true,vdata=true,etadata=true);
 
     # run the adjoint optimization
     qn_options = MadNLP.QuasiNewtonOptions(; max_history=100)
@@ -776,7 +818,7 @@ function run_windstress()
 
 end
 
-function initcond_plots()
+function windstress_plots()
 
     # ekf_avgu, ekf_avgv, true_states, result, S_adj, states_adj, S_pred, pred_states
 
@@ -904,18 +946,18 @@ function initcond_plots()
     pred_energy = zeros(673)
     ekf_energy = zeros(673)
 
-    for t = 1:673
+    for t = 1:124
 
-        true_energy[t] = (sum(true_states[t].u.^2) + sum(true_states[t].v.^2)) / (128 * 127)
-        pred_energy[t] = (sum(pred_states[t].u.^2) + sum(pred_states[t].v.^2)) / (128 * 127)
+        # true_energy[t] = (sum(true_states[t].u.^2) + sum(true_states[t].v.^2)) / (128 * 127)
+        # pred_energy[t] = (sum(pred_states[t].u.^2) + sum(pred_states[t].v.^2)) / (128 * 127)
         ekf_energy[t] = (sum(ekf_avgu[t].^2) + sum(ekf_avgv[t].^2)) / (128 * 127)
 
     end
 
     fig = Figure(size=(800, 700));
-    lines(fig[1,1], true_energy, label="Truth")
-    lines!(fig[1,1], pred_energy, label="Pred")
-    lines!(fig[1,1], ekf_energy, label="EKF")
+    # lines(fig[1,1], true_energy, label="Truth")
+    # lines!(fig[1,1], pred_energy, label="Pred")
+    lines(fig[1,1], ekf_energy[1:124], label="EKF")
     axislegend()
 
     # frequency wavenumber plots
@@ -936,18 +978,18 @@ function initcond_plots()
     up_pred = zeros(65, 673)
     vp_pred = zeros(65, 673)
 
-    for t = 1:498
+    for t = 1:124
         # up_adj[:,t] = power(periodogram(states_adj[t].u; radialavg=true))
         # vp_adj[:,t] = power(periodogram(states_adj[t].v; radialavg=true))
 
         up_ekf[:,t] = power(periodogram(ekf_avgu[t]; radialavg=true))
         vp_ekf[:,t] = power(periodogram(ekf_avgv[t]; radialavg=true))
 
-        up_true[:,t] = power(periodogram(true_states[t].u; radialavg=true))
-        vp_true[:,t] = power(periodogram(true_states[t].v; radialavg=true))
+        # up_true[:,t] = power(periodogram(true_states[t].u; radialavg=true))
+        # vp_true[:,t] = power(periodogram(true_states[t].v; radialavg=true))
 
-        up_pred[:,t] = power(periodogram(pred_states[t].u; radialavg=true))
-        vp_pred[:,t] = power(periodogram(pred_states[t].v; radialavg=true))
+        # up_pred[:,t] = power(periodogram(pred_states[t].u; radialavg=true))
+        # vp_pred[:,t] = power(periodogram(pred_states[t].v; radialavg=true))
     end
 
     fftu_adj = fft(up_adj,[2])
@@ -990,7 +1032,7 @@ function initcond_plots()
 
     # one dimensional figures
     fig2 = Figure(size=(800, 500));
-    t = 673
+    t = 124
     # lines(fig2[1,1], adj_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint", axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
     lines(fig2[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
     lines!(fig2[1,1], true_wl[2:end], up_true[2:end,t] + vp_true[2:end,t], label="Truth")

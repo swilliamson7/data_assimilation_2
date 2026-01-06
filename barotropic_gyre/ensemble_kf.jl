@@ -299,6 +299,9 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
         S_kf.Prog.v = vic_new
         S_kf.Prog.η = etaic_new
 
+        # perturbing the wind stress forcing amplitude
+        S_kf.parameters.Fx0 = model.pred_forcing + randn(1)[1] * model.sigma_forcing
+
         Diag = S_kf.Diag
         Prog = S_kf.Prog
 
@@ -373,7 +376,8 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
 
             end
 
-            println("Fx0 before data assimilation: ", S_all[1].parameters.Fx0)
+            println("Fx0 before data assimilation: ", Z[end, 1])
+            println("u before data assimilation ", Z[30, 1])
 
             d = data[:, j][data_spots]
             D = d * ones(N)' + sqrt(N - 1) .* E_fixed
@@ -408,7 +412,8 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
 
             end
 
-            println("Fx0 after data assimilation: ", S_all[1].parameters.Fx0)
+            println("Fx0 after data assimilation: ", Z[end, 1])
+            println("u after data assimilation ", Z[30, 1])
 
             j += 1
 
@@ -434,7 +439,7 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
 
     end
 
-    return ekf_avgu, ekf_avgv, ekf_avgeta
+    return ekf_avgu, ekf_avgv, ekf_avgeta, S_all
 
 end
 
@@ -1039,7 +1044,14 @@ will get used as the initial perturbations for the EKF
 """
 function compute_bred_vectors(N, sigma_initcond, uic_nohalo, vic_nohalo, etaic_nohalo, parameters)
 
-    sigma_bv = sigma_initcond
+    utrue = ncread("./data_files/128_postspinup_30days_hourlysaves/u.nc", "u")[:,:,1];
+    etatrue = ncread("./data_files/128_postspinup_30days_hourlysaves/eta.nc", "eta")[:,:,1];
+
+    sigma_bvu = (sum(abs.(utrue .- uic_nohalo)) / (128*127)) / 5
+    sigma_bveta = (sum(abs.(etatrue .- etaic_nohalo)) / (128^2)) / 5
+
+    println("sigma_bvu: ", sigma_bvu)
+    println("sigma_bveta: ", sigma_bveta)
 
     bred_vectors = []
 
@@ -1069,9 +1081,9 @@ function compute_bred_vectors(N, sigma_initcond, uic_nohalo, vic_nohalo, etaic_n
         )
 
         # perturb initial conditions from the guessed value for each ensemble member
-        upert = sigma_bv .* randn(size(Prog.u))
-        vpert = sigma_bv .* randn(size(Prog.v))
-        etapert = sigma_bv .* randn(size(Prog.η))
+        upert = sigma_bvu .* randn(size(Prog.u))
+        vpert = sigma_bvu .* randn(size(Prog.v))
+        etapert = sigma_bveta .* randn(size(Prog.η))
 
         # computing norms of the initial perturbations
         Au = norm(upert)
@@ -1152,9 +1164,9 @@ function compute_bred_vectors(N, sigma_initcond, uic_nohalo, vic_nohalo, etaic_n
                 p1 = ShallowWaters.time_integration(deepcopy(S_all[1]));
                 p2 = ShallowWaters.time_integration(deepcopy(S_all[2]));
 
-                normu = norm(p2.u)
-                normv = norm(p2.v)
-                normeta = norm(p2.η)
+                normu = norm(p1.u - p2.u)
+                normv = norm(p1.v - p2.v)
+                normeta = norm(p1.η - p2.η)
 
                 uperturbation = (p1.u - p2.u) * (Au / normu)
                 vperturbation = (p1.v - p2.v) * (Av / normv)
@@ -1163,6 +1175,8 @@ function compute_bred_vectors(N, sigma_initcond, uic_nohalo, vic_nohalo, etaic_n
                 push!(bred_vectors, [vec(uperturbation); vec(vperturbation); vec(etaperturbation)])
 
                 println("Norm of first bred vector minus the latest: ", norm(bred_vectors[1] .- [vec(uperturbation); vec(vperturbation); vec(etaperturbation)]))
+                println("Norm of current bred vector: ", norm([vec(uperturbation); vec(vperturbation); vec(etaperturbation)]))
+
 
             end
 
