@@ -176,6 +176,10 @@ function run_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=fal
 
             Z += A*W ./ (sqrt(N - 1))
 
+            if any(isnan, Z)
+                error("Ensemble array contains NaN values")
+            end
+
             for k = 1:N
 
                 Progkf[k].u .= reshape(Z[1:nu,k],S_for_values.grid.nux,S_for_values.grid.nuy)
@@ -376,9 +380,6 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
 
             end
 
-            println("Fx0 before data assimilation: ", Z[end, 1])
-            println("u before data assimilation ", Z[30, 1])
-
             d = data[:, j][data_spots]
             D = d * ones(N)' + sqrt(N - 1) .* E_fixed
             E = D * Π
@@ -391,6 +392,10 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
             W = Y'*(tempinv)*D̃
 
             Z += A*W ./ (sqrt(N - 1))
+
+            if any(isnan, Z)
+                error("Ensemble array contains NaN values")
+            end
 
             for k = 1:N
 
@@ -411,9 +416,6 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
                 S_all[k].parameters.Fx0 = Z[end, k]
 
             end
-
-            println("Fx0 after data assimilation: ", Z[end, 1])
-            println("u after data assimilation ", Z[30, 1])
 
             j += 1
 
@@ -439,7 +441,7 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
 
     end
 
-    return ekf_avgu, ekf_avgv, ekf_avgeta, S_all
+    return ekf_avgu, ekf_avgv, ekf_avgeta
 
 end
 
@@ -1047,8 +1049,8 @@ function compute_bred_vectors(N, sigma_initcond, uic_nohalo, vic_nohalo, etaic_n
     utrue = ncread("./data_files/128_postspinup_30days_hourlysaves/u.nc", "u")[:,:,1];
     etatrue = ncread("./data_files/128_postspinup_30days_hourlysaves/eta.nc", "eta")[:,:,1];
 
-    sigma_bvu = (sum(abs.(utrue .- uic_nohalo)) / (128*127)) / 5
-    sigma_bveta = (sum(abs.(etatrue .- etaic_nohalo)) / (128^2)) / 5
+    sigma_bvu = ( (sum(abs.(utrue .- uic_nohalo)) / (128*127)) )/ 100
+    sigma_bveta = ( (sum(abs.(etatrue .- etaic_nohalo)) / (128^2)) )/ 100
 
     println("sigma_bvu: ", sigma_bvu)
     println("sigma_bveta: ", sigma_bveta)
@@ -1060,6 +1062,9 @@ function compute_bred_vectors(N, sigma_initcond, uic_nohalo, vic_nohalo, etaic_n
         P = parameters
         S1 = ShallowWaters.model_setup(P)
         S2 = ShallowWaters.model_setup(P)
+
+        S1.parameters.Ndays = 1
+        S2.parameters.Ndays = 1
 
         upred,vpred,etapred,_ = ShallowWaters.add_halo(uic_nohalo,vic_nohalo,etaic_nohalo,zeros(128,128),S1)
 

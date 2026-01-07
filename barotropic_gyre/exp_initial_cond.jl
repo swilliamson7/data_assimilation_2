@@ -688,7 +688,7 @@ function NLPModels.grad!(model, param_guess, G)
 
 end
 
-function run_initcond(Ndays, sigma_data, sigma_initcond)
+function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
 
     P = ShallowWaters.Parameter(T = Float64;
         output=false,
@@ -715,37 +715,93 @@ function run_initcond(Ndays, sigma_data, sigma_initcond)
     # number of ensemble members, typically leaving this 20
     N = 20
 
-    # daily data
-    # data_steps = 225:224:Ndays*225
+    if exp === 1
+        # (1)
 
-    # hourly data
-    data_steps = 10:9:S.grid.nt
+        # daily data
+        data_steps = 225:224:Ndays*225
 
-    xu = 15:15:128
-    yu = 15:15:128
-    Xu = xu' .* ones(length(yu))
-    Yu = ones(length(xu))' .* yu
+        xu = 30:10:100
+        yu = 40:10:100
+        Xu = xu' .* ones(length(yu))
+        Yu = ones(length(xu))' .* yu
 
-    # we want data for all of u, v, and η for this experiment
-    data_spotsu = vec((Xu.-1) .* 127 + Yu)
-    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
-    data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
-    data_spots = [data_spotsu; data_spotsv; data_spotseta]
+        # we want data for all of u, v, and η for this experiment
+        data_spotsu = vec((Xu.-1) .* 127 + Yu)
+        data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
+        data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
+        data_spots = [data_spotsu; data_spotsv; data_spotseta]
+        udata=true
+        vdata=true
+        etadata=true
+    elseif exp === 2
+        # (2)
+        # daily data
+        data_steps = 225:224:Ndays*225
 
-    # udata = ncread("./data_files/128_postspinup_30days_dailysaves/u.nc", "u")
-    # vdata = ncread("./data_files/128_postspinup_30days_dailysaves/v.nc", "v")
-    # etadata = ncread("./data_files/128_postspinup_30days_dailysaves/eta.nc", "eta")
+        xu = 30:10:100
+        yu = 40:10:100
+        Xu = xu' .* ones(length(yu))
+        Yu = ones(length(xu))' .* yu
 
-    udata = ncread("./data_files/128_postspinup_90days_hourlysaves/u.nc", "u")
-    vdata = ncread("./data_files/128_postspinup_90days_hourlysaves/v.nc", "v")
-    etadata = ncread("./data_files/128_postspinup_90days_hourlysaves/eta.nc", "eta")
+        # we want data for all of u, v, and η for this experiment
+        data_spotsu = vec((Xu.-1) .* 127 + Yu)
+        data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
+        # data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
+        data_spots = [data_spotsu; data_spotsv]
+        udata=true
+        vdata=true
+        etadata=false
+    elseif exp === 3
+        # (3)
+
+        # data every 4 days
+        data_steps = (4*224+1):4*224:Ndays*225
+
+        xu = 30:10:100
+        yu = 40:10:100
+        Xu = xu' .* ones(length(yu))
+        Yu = ones(length(xu))' .* yu
+
+        # we want data for all of u, v, and η for this experiment
+        data_spotsu = vec((Xu.-1) .* 127 + Yu)
+        data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
+        data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
+        data_spots = [data_spotsu; data_spotsv; data_spotseta]
+        udata=true
+        vdata=true
+        etadata=true
+    elseif exp === 4
+        # (4)
+        # daily data
+        data_steps = 225:224:Ndays*225
+
+        xu = 10:4:120
+        yu = 10:4:120
+        Xu = xu' .* ones(length(yu))
+        Yu = ones(length(xu))' .* yu
+
+        # we want data for all of u, v, and η for this experiment
+        data_spotsu = vec((Xu.-1) .* 127 + Yu)
+        data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
+        data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
+        data_spots = [data_spotsu; data_spotsv; data_spotseta]
+
+        udata=true
+        vdata=true
+        etadata=true
+    end
+
+    ud = ncread("./data_files/128_postspinup_30days_dailysaves/u.nc", "u")
+    vd = ncread("./data_files/128_postspinup_30days_dailysaves/v.nc", "v")
+    etad = ncread("./data_files/128_postspinup_30days_dailysaves/eta.nc", "eta")
 
     M = length(data_steps)
     data = zeros(128*127*2 + 128^2, M)
     for k = 1:M
-        perturbed_udata = udata[:,:,k+1] .+ sigma_data .* randn(size(udata[:,:,1]))
-        perturbed_vdata = vdata[:,:,k+1] .+ sigma_data .* randn(size(vdata[:,:,1]))
-        perturbed_etadata = etadata[:,:,k+1] .+ sigma_data .* randn(size(etadata[:,:,1]))
+        perturbed_udata = ud[:,:,k+1] .+ sigma_data .* randn(size(ud[:,:,1]))
+        perturbed_vdata = vd[:,:,k+1] .+ sigma_data .* randn(size(vd[:,:,1]))
+        perturbed_etadata = etad[:,:,k+1] .+ sigma_data .* randn(size(etad[:,:,1]))
         data[:,k] .= [vec(perturbed_udata); vec(perturbed_vdata); vec(perturbed_etadata)]
     end
 
@@ -761,7 +817,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond)
     );
 
     # run the ensemble Kalman filter
-    ekf_avgu, ekf_avgv, ekf_avgeta = run_ensemble_kf(ekf_model, param_guess;udata=true,vdata=true,etadata=true)
+    ekf_avgu, ekf_avgv, ekf_avgeta = run_ensemble_kf(ekf_model, param_guess;udata=udata,vdata=vdata,etadata=etadata)
 
     # run the adjoint optimization
     qn_options = MadNLP.QuasiNewtonOptions(; max_history=100)
