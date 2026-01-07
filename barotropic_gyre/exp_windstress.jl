@@ -703,6 +703,10 @@ end
 
 function run_windstress()
 
+    # number of days to run the integration
+    Ndays = 30
+
+
     P = ShallowWaters.Parameter(T = Float64;
         output=false,
         L_ratio=1,
@@ -725,14 +729,11 @@ function run_windstress()
     )
     S = ShallowWaters.model_setup(P)
 
-    # number of days to run the integration
-    Ndays = 30
-
     # number of ensemble members, typically leaving this 20
     N = 20
 
     sigma_data = 0.1
-    sigma_initcond = 0.05
+    sigma_initcond = 0.1
 
     # data is generated with .012
     pred_forcing = 0.01
@@ -744,8 +745,8 @@ function run_windstress()
     # hourly data
     # data_steps = 10:9:S.grid.nt
 
-    xu = 30:10:100
-    yu = 40:10:100
+    xu = 10:4:120
+    yu = 10:4:120
     Xu = xu' .* ones(length(yu))
     Yu = ones(length(xu))' .* yu
 
