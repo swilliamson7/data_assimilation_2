@@ -583,7 +583,7 @@ function NLPModels.obj(model, param_guess)
         nx=128,
         Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
-        initpath="./data_files/128_postspinup_1year_noslipbc_epsetup",
+        initpath="./data_files/128_postspinup_30days_hourlysaves/",
         init_starti=1
     )
 
@@ -600,7 +600,7 @@ function NLPModels.obj(model, param_guess)
         model.S)...
     )
     current = 1
-    for m in (Prog.u, Prog.v, model.S.Prog.η)
+    for m in (Prog.u, Prog.v, Prog.η)
         sz = prod(size(m))
         m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
         current += sz
@@ -635,7 +635,7 @@ function NLPModels.grad!(model, param_guess, G)
         nx=128,
         Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
-        initpath="./data_files/128_postspinup_1year_noslipbc_epsetup",
+        initpath="./data_files/128_postspinup_30days_hourlysaves/",
         init_starti=1
     )
 
@@ -661,7 +661,7 @@ function NLPModels.grad!(model, param_guess, G)
     )
     # place the current guess as the initial conditions
     current = 1
-    for m in (Prog.u, Prog.v, model.S.Prog.η)
+    for m in (Prog.u, Prog.v, Prog.η)
         sz = prod(size(m))
         m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
         current += sz
@@ -697,6 +697,11 @@ function NLPModels.grad!(model, param_guess, G)
         return
     end
 
+    if norm(G) === 0.0
+        println("The norm of the gradient is zero")
+        return
+    end
+
     return nothing
 
 end
@@ -705,7 +710,6 @@ function run_windstress()
 
     # number of days to run the integration
     Ndays = 30
-
 
     P = ShallowWaters.Parameter(T = Float64;
         output=false,
@@ -756,16 +760,16 @@ function run_windstress()
     data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
     data_spots = [data_spotsu; data_spotsv; data_spotseta]
 
-    udata = ncread("./data_files/128_postspinup_90days_hourlysaves/u.nc", "u")
-    vdata = ncread("./data_files/128_postspinup_90days_hourlysaves/v.nc", "v")
-    etadata = ncread("./data_files/128_postspinup_90days_hourlysaves/eta.nc", "eta")
+    ud = ncread("./data_files/128_postspinup_30days_dailysaves/u.nc", "u")
+    vd = ncread("./data_files/128_postspinup_30days_dailysaves/v.nc", "v")
+    etad = ncread("./data_files/128_postspinup_30days_dailysaves/eta.nc", "eta")
 
     M = length(data_steps)
     data = zeros(128*127*2 + 128^2, M)
     for k = 1:M
-        perturbed_udata = udata[:,:,k+1] .+ sigma_data .* randn(size(udata[:,:,1]))
-        perturbed_vdata = vdata[:,:,k+1] .+ sigma_data .* randn(size(vdata[:,:,1]))
-        perturbed_etadata = etadata[:,:,k+1] .+ sigma_data .* randn(size(etadata[:,:,1]))
+        perturbed_udata = ud[:,:,k+1] .+ sigma_data .* randn(size(ud[:,:,1]))
+        perturbed_vdata = vd[:,:,k+1] .+ sigma_data .* randn(size(vd[:,:,1]))
+        perturbed_etadata = etad[:,:,k+1] .+ sigma_data .* randn(size(etad[:,:,1]))
         data[:,k] .= [vec(perturbed_udata); vec(perturbed_vdata); vec(perturbed_etadata)]
     end
 
@@ -783,7 +787,7 @@ function run_windstress()
     )
 
     # run the ensemble Kalman filter
-    ekf_avgu, ekf_avgv, ekf_avgeta, S_all = windstress_ensemble_kf(ekf_model, param_guess;udata=true,vdata=true,etadata=true);
+    ekf_avgu, ekf_avgv, ekf_avgeta = windstress_ensemble_kf(ekf_model, param_guess;udata=true,vdata=true,etadata=true);
 
     # run the adjoint optimization
     qn_options = MadNLP.QuasiNewtonOptions(; max_history=100)
