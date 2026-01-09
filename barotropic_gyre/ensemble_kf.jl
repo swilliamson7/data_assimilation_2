@@ -40,7 +40,6 @@ function run_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=fal
     end
 
     Π = (I - (1 / N)*(ones(N) * ones(N)')) / sqrt(N - 1)
-    E_fixed = (sigma_data .* randn(length(data_spots), N)) ./ sqrt(N-1)
     W = zeros(N,N)
     T = zeros(N,N)
 
@@ -163,6 +162,7 @@ function run_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=fal
 
             end
 
+            E_fixed = (sigma_data .* randn(length(data_spots), N)) ./ sqrt(N-1)
             d = data[:, j][data_spots]
             D = d * ones(N)' + sqrt(N - 1) .* E_fixed
             E = D * Π
@@ -171,7 +171,8 @@ function run_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=fal
 
             D̃ = D - U
             temp = Y*Y' + E*E'
-            tempinv = (temp' * temp) * temp'
+            tempinv = temp^(-1)
+            # tempinv = (temp' * temp) * temp'
             W = Y'*(tempinv)*D̃
 
             Z += A*W ./ (sqrt(N - 1))

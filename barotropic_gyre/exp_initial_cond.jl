@@ -855,8 +855,6 @@ end
 
 function initcond_plots()
 
-    # ekf_avgu, ekf_avgv, true_states, result, S_adj, states_adj, S_pred, pred_states
-
     # number of days to run the integration
     Ndays = 30
 
@@ -867,44 +865,93 @@ function initcond_plots()
     sigma_initcond = 0.1
     data_steps = 225:224:Ndays*225
 
-    xu = 10:5:128
-    yu = 10:5:128
+    xu = 30:10:100
+    yu = 40:10:100
     Xu = xu' .* ones(length(yu))
     Yu = ones(length(xu))' .* yu
 
     # we want data for all of u, v, and η for this experiment
-    data_spotsu = vec((Xu.-1) .* 127 + Yu);
-    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127);
-    data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2);
-    data_spots = [data_spotsu; data_spotsv; data_spotseta];
+    data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
+    data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
+    data_spots = [data_spotsu; data_spotsv; data_spotseta]
 
-    udata = ncread("./data_files/128_postspinup_30days_hourlysaves/u.nc", "u");
-    vdata = ncread("./data_files/128_postspinup_30days_hourlysaves/v.nc", "v");
-    etadata = ncread("./data_files/128_postspinup_30days_hourlysaves/eta.nc", "eta");
+    # true states
 
-    ekf_avgu = load_object("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/ekf_avgu_initcond_densedata.jld2");
-    ekf_avgv = load_object("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/ekf_avgv_initcond_densedata.jld2");
-    uadj = ncread("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/states_adj/u.nc", "u");
-    vadj = ncread("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/states_adj/v.nc", "v");
-    etaadj = ncread("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/states_adj/eta.nc", "eta");
-    # states_adj = load_object("./initcond_dailydata_allofuveta/states_adj_initcond.jld2");
-    states_pred = load_object("./initcond_dailydata_0.1initnoise_0.1datanoise_densespatialdata/states_pred_initcond_densedata.jld2");
+    udata = ncread("./data_files/128_postspinup_90days_hourlysaves/u.nc", "u");
+    vdata = ncread("./data_files/128_postspinup_90days_hourlysaves/v.nc", "v");
+    etadata = ncread("./data_files/128_postspinup_90days_hourlysaves/eta.nc", "eta");
+
+    # baseline
+
+    states_pred_baseline = load_object("./experiments/initcond_baseline/states_pred_initcond_baseline.jld2");
+
+    uadj_baseline = ncread("./experiments/initcond_baseline/states_adjoint_baseline_30day_hourlysaves/u.nc", "u");
+    vadj_baseline = ncread("./experiments/initcond_baseline/states_adjoint_baseline_30day_hourlysaves/v.nc", "v");
+    etaadj_baseline = ncread("./experiments/initcond_baseline/states_adjoint_baseline_30day_hourlysaves/eta.nc", "eta");
+
+    ekf_avgu_baseline = load_object("./experiments/initcond_baseline/ekf_avgu_initcond_baseline.jld2");
+    ekf_avgv_baseline = load_object("./experiments/initcond_baseline/ekf_avgv_initcond_baseline.jld2");
+    ekf_avgeta_baseline = load_object("./experiments/initcond_baseline/ekf_avgeta_initcond_baseline.jld2");
+
+    ekf_avgu_baseline = load_object("./ekf_avgu_baseline_new.jld2");
+    ekf_avgv_baseline = load_object("./ekf_avgv_baseline_new.jld2");
+    ekf_avgeta_baseline = load_object("./ekf_avgeta_baseline_new.jld2");
+
+
+    # every 4 day data
+
+    states_pred_4 = load_object("./experiments/initcond_dataevery4days/states_pred_initcond_4daydata.jld2");
+
+    uadj_4 = ncread("./experiments/initcond_dataevery4days/states_adjoint_4daydata_30day_hourlysaves/u.nc", "u");
+    vadj_4 = ncread("./experiments/initcond_dataevery4days/states_adjoint_4daydata_30day_hourlysaves/v.nc", "v");
+    etaadj_4 = ncread("./experiments/initcond_dataevery4days/states_adjoint_4daydata_30day_hourlysaves/eta.nc", "eta");
+
+    ekf_avgu_4 = load_object("./experiments/initcond_dataevery4days/ekf_avgu_initcond_4daydata.jld2");
+    ekf_avgv_4 = load_object("./experiments/initcond_dataevery4days/ekf_avgv_initcond_4daydata.jld2");
+    ekf_avgeta_4 = load_object("./experiments/initcond_dataevery4days/ekf_avgeta_initcond_4daydata.jld2");
+
+    # denser spatial data
+
+    states_pred_dense = load_object("./experiments/initcond_denserspatialdata/states_pred_initcond_denserspatialdata.jld2");
+
+    uadj_dense = ncread("./experiments/initcond_denserspatialdata/states_adjoint_denserspatialdata_30days_hourlysaves/u.nc", "u");
+    vadj_dense = ncread("./experiments/initcond_denserspatialdata/states_adjoint_denserspatialdata_30days_hourlysaves/v.nc", "v");
+    etaadj_dense = ncread("./experiments/initcond_denserspatialdata/states_adjoint_denserspatialdata_30days_hourlysaves/eta.nc", "eta");
+
+    ekf_avgu_dense = load_object("./experiments/initcond_denserspatialdata/ekf_avgu_initcond_denserspatialdata.jld2");
+    ekf_avgv_dense = load_object("./experiments/initcond_denserspatialdata/ekf_avgv_initcond_denserspatialdata.jld2");
+    ekf_avgeta_dense = load_object("./experiments/initcond_denserspatialdata/ekf_avgeta_initcond_denserspatialdata.jld2");
+
+    # no eta data
+
+    states_pred_noeta = load_object("./experiments/initcond_noetadata/states_pred_initcond_noetadata.jld2");
+
+    uadj_noeta = ncread("./experiments/initcond_noetadata/states_adjoint_noetadata_30days_hourlysaves/u.nc", "u");
+    vadj_noeta = ncread("./experiments/initcond_noetadata/states_adjoint_noetadata_30days_hourlysaves/v.nc", "v");
+    etaadj_noeta = ncread("./experiments/initcond_noetadata/states_adjoint_noetadata_30days_hourlysaves/eta.nc", "eta");
+
+    ekf_avgu_noeta = load_object("./experiments/initcond_noetadata/ekf_avgu_initcond_noetadata.jld2");
+    ekf_avgv_noeta = load_object("./experiments/initcond_noetadata/ekf_avgv_initcond_noetadata.jld2");
+    ekf_avgeta_noeta = load_object("./experiments/initcond_noetadata/ekf_avgeta_initcond_noetadata.jld2");
+
+    # plots from here on out
 
     # location of data spatially on true fields
     fig = Figure(size=(1000, 500));
-    day = 30 + 1
-    ax1, hm1 = heatmap(fig[1,1], udata[:,:,day],
+    t = 748
+    ax1, hm1 = heatmap(fig[1,1], udata[:,:,t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,day])),
-        maximum(abs.(udata[:,:,day]))),
+        colorrange=(-maximum(abs.(udata[:,:,t])),
+        maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"u(t = 30 \; \text{days}, x, y)"),
     );
     scatter!(ax1, vec(Xu), vec(Yu), color=:green);
     Colorbar(fig[1,2], hm1)
-    ax2, hm2 = heatmap(fig[1,3], vdata[:,:,day],
+    ax2, hm2 = heatmap(fig[1,3], vdata[:,:,t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,day])),
-        maximum(abs.(vdata[:,:,day]))),
+        colorrange=(-maximum(abs.(vdata[:,:,t])),
+        maximum(abs.(vdata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)"),
     );
     scatter!(ax2, vec(Xu), vec(Yu), color=:green);
@@ -934,53 +981,49 @@ function initcond_plots()
     t = 748
 
     ax1, hm1 = heatmap(fig[1,1],
-        # udata[:,:,31],
-        states_pred[t].u,
+        states_pred_baseline[t].u,
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, -)")
     )
     Colorbar(fig[1,2], hm1)
 
     ax3, hm3 = heatmap(fig[1, 3], 
-        ekf_avgu[t],
+        ekf_avgu_dense[t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig[1,4], hm3)
 
     ax2, hm2 = heatmap(fig[1,5], 
-        # states_adj[t].u,
-        uadj[:,:,t],
+        uadj_baseline[:,:,t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, +)")
     );
     Colorbar(fig[1,6], hm2)
 
     ax4, hm4 = heatmap(fig[2,1],
-        # vdata[:,:,31],
-        states_pred[t].v,
+        states_pred_baseline[t].v,
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, -)")
     )
     Colorbar(fig[2,2], hm4)
 
     ax6, hm6 = heatmap(fig[2, 3], 
-        ekf_avgv[t],
+        ekf_avgv_dense[t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig[2,4], hm6)
 
     ax5, hm5 = heatmap(fig[2,5], 
-        # states_adj[t].v,
-        vadj[:,:,t],
+        vadj_baseline[:,:,t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
     );
     Colorbar(fig[2,6], hm5)
@@ -1398,5 +1441,76 @@ function finite_difference(Ndays, xcoord, ycoord)
     end
 
     println("Finite difference result: $diffs")
+
+end
+
+# just in case I need to rerun something
+function generating_models()
+
+
+    # true states
+    P = ShallowWaters.Parameter(T = Float64;
+        output=true,
+        output_dt=8,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        seasonal_wind_x=false,
+        topography="flat",
+        bc="nonperiodic",
+        bottom_drag="quadratic",
+        tracer_advection=false,
+        tracer_relaxation=false,
+        α=2,
+        nx=128,
+        Ndays=5*365,
+        initial_cond="ncfile",
+        initpath="./data_files/128_spinup_noforcing"
+    );
+    S = ShallowWaters.model_setup(P);
+    ShallowWaters.time_integration(S)
+
+    # generating the adjoint states (if needed)
+    P = ShallowWaters.Parameter(T = Float64;
+        output=true,
+        output_dt=1,
+        L_ratio=1,
+        g=9.81,
+        H=500,
+        wind_forcing_x="double_gyre",
+        Lx=3840e3,
+        seasonal_wind_x=false,
+        topography="flat",
+        bc="nonperiodic",
+        bottom_drag="quadratic",
+        tracer_advection=false,
+        tracer_relaxation=false,
+        α=2,
+        nx=128,
+        Ndays=30,
+        initial_cond="ncfile",
+        initpath="./data_files/128_spinup_noforcing"
+    );
+    S_adj = ShallowWaters.model_setup(P);
+    uic = S_adj.parameters.T.(zeros(127,128));
+    vic = S_adj.parameters.T.(zeros(128,127));
+    etaic = S_adj.parameters.T.(zeros(128,128));
+    current = 1
+    # result = load_object("./experiments/initcond_baseline/optimizer_result_initcond_baseline.jld2").solution;
+    # result = load_object("./experiments/initcond_dataevery4days/optimizerres_initcond_4daydata.jld2").solution;
+    # result = load_object("./experiments/initcond_denserspatialdata/optimizer_result_initcond_denserspatialdata.jld2").solution;
+    result = load_object("./experiments/initcond_noetadata/result_optimizer_initcond_noetadata.jld2").solution;
+    for m in (uic, vic, etaic)
+        sz = prod(size(m))
+        m .= reshape(result[current:(current + sz - 1)], size(m)...)
+        current += sz
+    end
+    utuned,vtuned,etatuned,_ = ShallowWaters.add_halo(uic,vic,etaic,zeros(128,128),S_adj);
+    S_adj.Prog.u = utuned
+    S_adj.Prog.v = vtuned
+    S_adj.Prog.η = etatuned
+    ShallowWaters.time_integration(S_adj)
 
 end
