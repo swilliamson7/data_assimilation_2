@@ -719,7 +719,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
         # (1)
 
         # daily data
-        data_steps = 225:224:Ndays*225
+        data_steps = 225:224:S.grid.nt
 
         xu = 30:10:100
         yu = 40:10:100
@@ -737,7 +737,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
     elseif exp === 2
         # (2)
         # daily data
-        data_steps = 225:224:Ndays*225
+        data_steps = 225:224:S.grid.nt
 
         xu = 30:10:100
         yu = 40:10:100
@@ -756,7 +756,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
         # (3)
 
         # data every 4 days
-        data_steps = (4*224+1):4*224:Ndays*225
+        data_steps = (4*224+1):4*224:S.grid.nt
 
         xu = 30:10:100
         yu = 40:10:100
@@ -774,7 +774,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
     elseif exp === 4
         # (4)
         # daily data
-        data_steps = 225:224:Ndays*225
+        data_steps = 225:224:S.grid.nt
 
         xu = 10:4:120
         yu = 10:4:120
