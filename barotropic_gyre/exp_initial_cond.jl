@@ -853,7 +853,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
 
 end
 
-function initcond_plots()
+function load_models()
 
     # number of days to run the integration
     Ndays = 30
@@ -894,11 +894,6 @@ function initcond_plots()
     ekf_avgv_baseline = load_object("./experiments/initcond_baseline/ekf_avgv_initcond_baseline.jld2");
     ekf_avgeta_baseline = load_object("./experiments/initcond_baseline/ekf_avgeta_initcond_baseline.jld2");
 
-    ekf_avgu_baseline = load_object("./ekf_avgu_baseline_new.jld2");
-    ekf_avgv_baseline = load_object("./ekf_avgv_baseline_new.jld2");
-    ekf_avgeta_baseline = load_object("./ekf_avgeta_baseline_new.jld2");
-
-
     # every 4 day data
 
     states_pred_4 = load_object("./experiments/initcond_dataevery4days/states_pred_initcond_4daydata.jld2");
@@ -935,10 +930,35 @@ function initcond_plots()
     ekf_avgv_noeta = load_object("./experiments/initcond_noetadata/ekf_avgv_initcond_noetadata.jld2");
     ekf_avgeta_noeta = load_object("./experiments/initcond_noetadata/ekf_avgeta_initcond_noetadata.jld2");
 
+end
+
+function prognostic_fields()
+
+    # number of days to run the integration
+    Ndays = 30
+
+    # number of ensemble members, typically leaving this 20
+    N = 20
+
+    sigma_data = 0.1
+    sigma_initcond = 0.1
+    data_steps = 225:224:Ndays*225
+
+    xu = 30:10:100
+    yu = 40:10:100
+    Xu = xu' .* ones(length(yu))
+    Yu = ones(length(xu))' .* yu
+
+    # we want data for all of u, v, and η for this experiment
+    data_spotsu = vec((Xu.-1) .* 127 + Yu)
+    data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
+    data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
+    data_spots = [data_spotsu; data_spotsv; data_spotseta]
+
     # plots from here on out
 
     # location of data spatially on true fields
-    fig = Figure(size=(1000, 500));
+    fig = Figure(size=(1000, 300));
     t = 748
     ax1, hm1 = heatmap(fig[1,1], udata[:,:,t],
         colormap=:balance,
@@ -955,7 +975,27 @@ function initcond_plots()
         axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)"),
     );
     scatter!(ax2, vec(Xu), vec(Yu), color=:green);
-    Colorbar(fig[1,4], hm2);
+    Colorbar(fig[1,4], hm1)
+    ax3, hm3 = heatmap(fig[1,5], etadata[:,:,t],
+        colormap=:balance,
+        colorrange=(-maximum(abs.(etadata[:,:,t])),
+        maximum(abs.(etadata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\eta(t = 30 \; \text{days}, x, y)"),
+    );
+    scatter!(ax3, vec(Xu), vec(Yu), color=:green);
+    Colorbar(fig[1,6], hm3);
+
+    ga = fig[1, 1] = GridLayout()
+    gb = fig[1, 3] = GridLayout()
+    gc = fig[1, 5] = GridLayout()
+    for (label, layout) in zip(["(a)", "(b)", "(c)"], [ga, gb, gc])
+    Label(layout[1, 1, TopLeft()], label,
+        fontsize = 15,
+        font = :bold,
+        padding = (0, 5, 5, 0),
+        halign = :right)
+    end
+
 
     # predicted states
     fig = Figure(size=(900,400), fontsize=15);
@@ -989,7 +1029,7 @@ function initcond_plots()
     Colorbar(fig[1,2], hm1)
 
     ax3, hm3 = heatmap(fig[1, 3], 
-        ekf_avgu_dense[t],
+        ekf_avgu_baseline[t],
         colormap=:balance,
         colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y)")
@@ -1013,7 +1053,7 @@ function initcond_plots()
     Colorbar(fig[2,2], hm4)
 
     ax6, hm6 = heatmap(fig[2, 3], 
-        ekf_avgv_dense[t],
+        ekf_avgv_baseline[t],
         colormap=:balance,
         colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
@@ -1126,6 +1166,10 @@ function initcond_plots()
     )
     Colorbar(fig[2,4], hm4)
 
+end
+
+function energy_plots()
+
     # energy plots
 
     fig = Figure(size=(600, 500));
@@ -1174,29 +1218,29 @@ function initcond_plots()
 
     # spatially averaged energy
 
-    true_energy = zeros(673)
-    pred_energy = zeros(673)
-    ekf_energy = zeros(673)
+    true_energy = zeros(748)
+    pred_energy = zeros(748)
+    ekf_energy = zeros(748)
 
-    for t = 1:673
+    for t = 1:748
 
-        true_energy[t] = (sum(true_states[t].u.^2) + sum(true_states[t].v.^2)) / (128 * 127)
-        pred_energy[t] = (sum(pred_states[t].u.^2) + sum(pred_states[t].v.^2)) / (128 * 127)
-        ekf_energy[t] = (sum(ekf_avgu[t].^2) + sum(ekf_avgv[t].^2)) / (128 * 127)
+        true_energy[t] = (sum(udata[:,:,t+1].^2) + sum(vdata[:,:,t+1].^2)) / (128 * 127)
+        pred_energy[t] = (sum(uadj_baseline[:,:,t+1].^2) + sum(vadj_baseline[:,:,t+1].^2)) / (128 * 127)
+        ekf_energy[t] = (sum(ekf_avgu_baseline[t].^2) + sum(ekf_avgv_baseline[t].^2)) / (128 * 127)
 
     end
 
     fig = Figure(size=(800, 700));
-    lines(fig[1,1], true_energy, label="Truth")
-    lines!(fig[1,1], pred_energy, label="Pred")
-    lines!(fig[1,1], ekf_energy, label="EKF")
+    ax = Axis(fig[1,1])
+    lines!(ax, LinRange(0, 6750, 748), true_energy, label="Truth")
+    lines!(ax,LinRange(0, 6750, 748), pred_energy, label="Adjoint")
+    lines!(ax,LinRange(0, 6750, 748), ekf_energy, label="EKF")
+    vlines!(ax, data_steps, color=:gray75, linestyle=:dot);
     axislegend()
+end
 
+function spectrum_plots()
     # frequency wavenumber plots
-
-    fig2 = Figure(size=(800, 500));
-
-    ax1 = Axis(fig2[1,1])
 
     up_adj = zeros(65, 748)
     vp_adj = zeros(65, 748)
@@ -1211,14 +1255,14 @@ function initcond_plots()
     vp_pred = zeros(65, 748)
 
     for t = 1:748
-        up_adj[:,t] = power(periodogram(uadj[:,:,t+1]; radialavg=true))
-        vp_adj[:,t] = power(periodogram(vadj[:,:,t+1]; radialavg=true))
+        up_adj[:,t] = power(periodogram(uadj_baseline[:,:,t+1]; radialavg=true))
+        vp_adj[:,t] = power(periodogram(vadj_baseline[:,:,t+1]; radialavg=true))
 
-        up_ekf[:,t] = power(periodogram(ekf_avgu[t]; radialavg=true))
-        vp_ekf[:,t] = power(periodogram(ekf_avgv[t]; radialavg=true))
+        up_ekf[:,t] = power(periodogram(ekf_avgu_baseline[t]; radialavg=true))
+        vp_ekf[:,t] = power(periodogram(ekf_avgv_baseline[t]; radialavg=true))
 
-        up_pred[:,t] = power(periodogram(states_pred[t].u; radialavg=true))
-        vp_pred[:,t] = power(periodogram(states_pred[t].v; radialavg=true))
+        up_pred[:,t] = power(periodogram(states_pred_baseline[t].u; radialavg=true))
+        vp_pred[:,t] = power(periodogram(states_pred_baseline[t].v; radialavg=true))
 
         up_true[:,t] = power(periodogram(udata[:,:,t+1]; radialavg=true))
         vp_true[:,t] = power(periodogram(vdata[:,:,t+1]; radialavg=true))
@@ -1238,12 +1282,12 @@ function initcond_plots()
     ekf_wl = 1 ./ freq(periodogram(ekf_avgu[3]; radialavg=true));
     ekfu_freq = LinRange(0, 747, 748)
     ekfu_freq = ekfu_freq ./ 673
-    ekfu_freq = 1 ./ ekfu_freq 
+    ekfu_freq = 1 ./ ekfu_freq
     ekfu_freq[1] =  1000
     ekf_wl[1] = 1000
 
-    fftu_true = fft(up_ekf,[2])
-    fftv_true = fft(vp_ekf,[2])
+    fftu_true = fft(up_true[:,:,3],[2])
+    fftv_true = fft(vp_true[:,:,3],[2])
     true_wl = 1 ./ freq(periodogram(udata[:,:,3]; radialavg=true));
     trueu_freq = LinRange(0, 747, 748)
     trueu_freq = trueu_freq ./ 673
@@ -1264,7 +1308,7 @@ function initcond_plots()
 
     # one dimensional figures
     fig = Figure(size=(800, 500));
-    t = 350
+    t = 225
     lines(fig[1,1], adj_wl[2:end], up_true[2:end,t] + vp_true[2:end,t], label="Truth", axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2]))
     lines!(fig[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
     lines!(fig[1,1], true_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint")
