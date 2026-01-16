@@ -571,8 +571,6 @@ function NLPModels.obj(model, param_guess)
         topography="flat",
         bc="nonperiodic",
         bottom_drag="quadratic",
-        tracer_advection=false,
-        tracer_relaxation=false,
         α=2,
         nx=128,
         Ndays=model.S.parameters.Ndays,
@@ -622,8 +620,6 @@ function NLPModels.grad!(model, param_guess, G)
         topography="flat",
         bc="nonperiodic",
         bottom_drag="quadratic",
-        tracer_advection=false,
-        tracer_relaxation=false,
         α=2,
         nx=128,
         Ndays=model.S.parameters.Ndays,
@@ -701,8 +697,6 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
         topography="flat",
         bc="nonperiodic",
         bottom_drag="quadratic",
-        tracer_advection=false,
-        tracer_relaxation=false,
         α=2,
         nx=128,
         Ndays=Ndays,
@@ -878,9 +872,9 @@ function load_models()
 
     # true states
 
-    udata = ncread("./data_files/128_postspinup_90days_hourlysaves/u.nc", "u");
-    vdata = ncread("./data_files/128_postspinup_90days_hourlysaves/v.nc", "v");
-    etadata = ncread("./data_files/128_postspinup_90days_hourlysaves/eta.nc", "eta");
+    udata = ncread("./data_files/128_90days_postspinup_hourlysaves/u.nc", "u");
+    vdata = ncread("./data_files/128_90days_postspinup_hourlysaves/v.nc", "v");
+    etadata = ncread("./data_files/128_90days_postspinup_hourlysaves/eta.nc", "eta");
 
     # baseline
 
@@ -890,9 +884,13 @@ function load_models()
     vadj_baseline = ncread("./experiments/initcond_baseline/states_adjoint_baseline_30day_hourlysaves/v.nc", "v");
     etaadj_baseline = ncread("./experiments/initcond_baseline/states_adjoint_baseline_30day_hourlysaves/eta.nc", "eta");
 
-    ekf_avgu_baseline = load_object("./experiments/initcond_baseline/ekf_avgu_initcond_baseline.jld2");
-    ekf_avgv_baseline = load_object("./experiments/initcond_baseline/ekf_avgv_initcond_baseline.jld2");
-    ekf_avgeta_baseline = load_object("./experiments/initcond_baseline/ekf_avgeta_initcond_baseline.jld2");
+    # ekf_avgu_baseline = load_object("./experiments/initcond_baseline/ekf_avgu_initcond_baseline.jld2");
+    # ekf_avgv_baseline = load_object("./experiments/initcond_baseline/ekf_avgv_initcond_baseline.jld2");
+    # ekf_avgeta_baseline = load_object("./experiments/initcond_baseline/ekf_avgeta_initcond_baseline.jld2");
+
+    ekf_avgu_baseline = load_object("./ekf_avgu_halfsigmainitcond.jld2");
+    ekf_avgv_baseline = load_object("./ekf_avgv_halfsigmainitcond.jld2");
+    ekf_avgeta_baseline = load_object("./ekf_avgeta_halfsigmainitcond.jld2");
 
     # every 4 day data
 
@@ -1218,15 +1216,15 @@ function energy_plots()
 
     # spatially averaged energy
 
-    true_energy = zeros(748)
+    true_energy = zeros(2245)
     pred_energy = zeros(748)
     ekf_energy = zeros(748)
 
-    for t = 1:748
+    for t = 1:2245
 
-        true_energy[t] = (sum(udata[:,:,t+1].^2) + sum(vdata[:,:,t+1].^2)) / (128 * 127)
-        pred_energy[t] = (sum(uadj_baseline[:,:,t+1].^2) + sum(vadj_baseline[:,:,t+1].^2)) / (128 * 127)
-        ekf_energy[t] = (sum(ekf_avgu_baseline[t].^2) + sum(ekf_avgv_baseline[t].^2)) / (128 * 127)
+        true_energy[t] = (sum(udata[:,:,t].^2) + sum(vdata[:,:,t].^2)) / (128 * 127)
+        # pred_energy[t] = (sum(uadj_baseline[:,:,t+1].^2) + sum(vadj_baseline[:,:,t+1].^2)) / (128 * 127)
+        # ekf_energy[t] = (sum(ekf_avgu_baseline[t].^2) + sum(ekf_avgv_baseline[t].^2)) / (128 * 127)
 
     end
 
@@ -1236,6 +1234,13 @@ function energy_plots()
     lines!(ax,LinRange(0, 6750, 748), pred_energy, label="Adjoint")
     lines!(ax,LinRange(0, 6750, 748), ekf_energy, label="EKF")
     vlines!(ax, data_steps, color=:gray75, linestyle=:dot);
+    axislegend()
+
+    fig = Figure(size=(800, 700));
+    ax = Axis(fig[1,1], yscale=log10)
+    lines!(ax, abs.(fft(true_energy)), label="Truth")
+    lines!(ax, abs.(fft(pred_energy)), label="Adjoint")
+    lines!(ax, abs.(fft(ekf_energy)), label="EKF")
     axislegend()
 end
 
@@ -1279,7 +1284,7 @@ function spectrum_plots()
 
     fftu_ekf = fft(up_ekf,[2])
     fftv_ekf = fft(vp_ekf,[2])
-    ekf_wl = 1 ./ freq(periodogram(ekf_avgu[3]; radialavg=true));
+    ekf_wl = 1 ./ freq(periodogram(ekf_avgu_baseline[3]; radialavg=true));
     ekfu_freq = LinRange(0, 747, 748)
     ekfu_freq = ekfu_freq ./ 673
     ekfu_freq = 1 ./ ekfu_freq
@@ -1317,15 +1322,28 @@ function spectrum_plots()
     
     # trying to see if data had any impact on the ekf of the above
     fig = Figure(size=(800, 500));
-    t = 673
-    lines(fig[1,1], adj_wl[2:end], up_true[2:end,end] + vp_true[2:end,end], label="Truth", 
-        axis=(xscale=log10,yscale=log10,xlabel="Wavelength (km)", ylabel="KE(k)", xreversed=true, xticks=[100, 30, 10, 2])
+    ax, hm = heatmap(fig[1,1], 1 ./ freq(periodogram(ekf_avgu_baseline[t]; radialavg=true)), 
+        1 ./ ((2*pi)*(1:747) / 748), 
+        log.( abs.( fft(up_true[2:end,:], [2]) + fft(vp_true[2:end,:], [2]) ) )[:,2:end],
+        colormap=:balance
     )
-    vlines!(ax2, [1, 2/224, 3/224, 4/224], color=:gray75, linestyle=:dot);
-    lines!(fig[1,1], ekf_wl[2:end], up_ekf[2:end,t] + vp_ekf[2:end,t], label="EKF")
-    lines!(fig[1,1], true_wl[2:end], up_adj[2:end,t] + vp_adj[2:end,t], label="Adjoint")
-    lines!(fig[1,1], pred_wl[2:end], up_pred[2:end,t] + vp_pred[2:end,t], linestyle=:dash, label="Prediction")
-    axislegend()
+    Colorbar(fig[1,2], hm)
+
+    fig = Figure();
+    ax, hm = heatmap(fig[1,1], 1 ./ freq(periodogram(ekf_avgu_baseline[t]; radialavg=true)), 
+        1 ./ ((2*pi)*(1:747) / 748), 
+        log.( abs.( fft(up_ekf[2:end,:], [2]) + fft(vp_ekf[2:end,:], [2]) ) )[:,2:end],
+        colormap=:balance
+    )
+    Colorbar(fig[1,2], hm)
+
+    fig = Figure();
+    ax, hm = heatmap(fig[1,1], 1 ./ freq(periodogram(ekf_avgu_baseline[t]; radialavg=true)), 
+        1 ./ ((2*pi)*(1:747) / 748), 
+        log.( abs.( fft(up_adj[2:end,:], [2]) + fft(vp_adj[2:end,:], [2]) ) )[:,2:end],
+        colormap=:balance
+    )
+    Colorbar(fig[1,2], hm)
 
     # time-averaged wavenumber spectrum
     fig = Figure(size=(800, 500));
@@ -1491,11 +1509,9 @@ end
 # just in case I need to rerun something
 function generating_models()
 
-
     # true states
     P = ShallowWaters.Parameter(T = Float64;
         output=true,
-        output_dt=8,
         L_ratio=1,
         g=9.81,
         H=500,
@@ -1505,13 +1521,9 @@ function generating_models()
         topography="flat",
         bc="nonperiodic",
         bottom_drag="quadratic",
-        tracer_advection=false,
-        tracer_relaxation=false,
         α=2,
         nx=128,
-        Ndays=5*365,
-        initial_cond="ncfile",
-        initpath="./data_files/128_spinup_noforcing"
+        Ndays=10*365
     );
     S = ShallowWaters.model_setup(P);
     ShallowWaters.time_integration(S)
@@ -1529,15 +1541,13 @@ function generating_models()
         topography="flat",
         bc="nonperiodic",
         bottom_drag="quadratic",
-        tracer_advection=false,
-        tracer_relaxation=false,
         α=2,
         nx=128,
-        Ndays=30,
+        Ndays=90,
         initial_cond="ncfile",
-        initpath="./data_files/128_spinup_noforcing"
+        initpath="./data_files/128_10yearspinup"
     );
-    S_adj = ShallowWaters.model_setup(P);
+    S = ShallowWaters.model_setup(P);
     uic = S_adj.parameters.T.(zeros(127,128));
     vic = S_adj.parameters.T.(zeros(128,127));
     etaic = S_adj.parameters.T.(zeros(128,128));
