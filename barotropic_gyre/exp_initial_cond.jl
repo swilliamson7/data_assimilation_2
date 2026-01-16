@@ -51,9 +51,7 @@ function initcond_model_setup(T, Ndays, N, data, sigma_data, sigma_initcond, dat
         nx=128,
         Ndays=Ndays,
         initial_cond="ncfile",
-        # initpath="./data_files/128_spinup_noforcing/"
-        initpath="./data_files/128_postspinup_30days_hourlysaves/",
-        init_starti=1
+        initpath="./data_files/128_10yearspinup/"
     )
 
     S_true = ShallowWaters.model_setup(P_pred)
@@ -561,7 +559,6 @@ end
 function NLPModels.obj(model, param_guess)
 
     P_temp = ShallowWaters.Parameter(T=model.S.parameters.T;
-        output=false,
         L_ratio=1,
         g=9.81,
         H=500,
@@ -575,8 +572,7 @@ function NLPModels.obj(model, param_guess)
         nx=128,
         Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
-        initpath="./data_files/128_postspinup_30days_hourlysaves/",
-        init_starti=1
+        initpath="./data_files/128_10yearspinup"
     )
 
     # ensuring these fields are reset between iterations of the optimizer
@@ -610,7 +606,6 @@ end
 function NLPModels.grad!(model, param_guess, G)
 
     P_temp = ShallowWaters.Parameter(T=model.S.parameters.T;
-        output=false,
         L_ratio=1,
         g=9.81,
         H=500,
@@ -624,8 +619,7 @@ function NLPModels.grad!(model, param_guess, G)
         nx=128,
         Ndays=model.S.parameters.Ndays,
         initial_cond="ncfile",
-        initpath="./data_files/128_postspinup_30days_hourlysaves/",
-        init_starti=1
+        initpath="./data_files/128_10yearspinup"
     )
 
     model.S = ShallowWaters.model_setup(P_temp)
@@ -687,7 +681,6 @@ end
 function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
 
     P = ShallowWaters.Parameter(T = Float64;
-        output=false,
         L_ratio=1,
         g=9.81,
         H=500,
@@ -701,8 +694,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
         nx=128,
         Ndays=Ndays,
         initial_cond="ncfile",
-        initpath="./data_files/128_postspinup_30days_hourlysaves/",
-        init_starti=1
+        initpath="./data_files/128_10yearspinup"
     )
     S = ShallowWaters.model_setup(P)
 
@@ -786,9 +778,9 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
         etadata=true
     end
 
-    ud = ncread("./data_files/128_postspinup_30days_dailysaves/u.nc", "u")
-    vd = ncread("./data_files/128_postspinup_30days_dailysaves/v.nc", "v")
-    etad = ncread("./data_files/128_postspinup_30days_dailysaves/eta.nc", "eta")
+    ud = ncread("./data_files/128_90days_postspinup_dailysaves/u.nc", "u")
+    vd = ncread("./data_files/128_90days_postspinup_dailysaves/v.nc", "v")
+    etad = ncread("./data_files/128_90days_postspinup_dailysaves/eta.nc", "eta")
 
     M = length(data_steps)
     data = zeros(128*127*2 + 128^2, M)

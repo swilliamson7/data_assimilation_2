@@ -1051,8 +1051,8 @@ will get used as the initial perturbations for the EKF
 """
 function compute_bred_vectors(N, sigma_initcond, uic_nohalo, vic_nohalo, etaic_nohalo, parameters)
 
-    utrue = ncread("./data_files/128_postspinup_30days_hourlysaves/u.nc", "u")[:,:,1];
-    etatrue = ncread("./data_files/128_postspinup_30days_hourlysaves/eta.nc", "eta")[:,:,1];
+    utrue = ncread("./data_files/128_90days_postspinup_dailysaves/u.nc", "u")[:,:,1];
+    etatrue = ncread("./data_files/128_90days_postspinup_dailysaves/eta.nc", "eta")[:,:,1];
 
     sigma_bvu = ( (sum(abs.(utrue .- uic_nohalo)) / (128*127)) )/ 5
     sigma_bveta = ( (sum(abs.(etatrue .- etaic_nohalo)) / (128^2)) )/ 5
