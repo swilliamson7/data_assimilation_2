@@ -841,14 +841,15 @@ end
 
 function load_models()
 
-    # number of days to run the integration
     Ndays = 30
+
+    sigma_data = 0.05
+    sigma_initcond = 0.025
 
     # number of ensemble members, typically leaving this 20
     N = 20
 
-    sigma_data = 0.1
-    sigma_initcond = 0.1
+    # daily data
     data_steps = 225:224:Ndays*225
 
     xu = 30:10:100
@@ -872,25 +873,25 @@ function load_models()
 
     states_pred_baseline = load_object("./experiments/initcond_baseline/states_pred_initcond_baseline.jld2");
 
-    uadj_baseline = ncread("./experiments/initcond_baseline/states_adjoint_baseline_30day_hourlysaves/u.nc", "u");
-    vadj_baseline = ncread("./experiments/initcond_baseline/states_adjoint_baseline_30day_hourlysaves/v.nc", "v");
-    etaadj_baseline = ncread("./experiments/initcond_baseline/states_adjoint_baseline_30day_hourlysaves/eta.nc", "eta");
+    uadj_baseline = ncread("./experiments/initcond_baseline/states_adjoint_1year_hourlysaves/u.nc", "u");
+    vadj_baseline = ncread("./experiments/initcond_baseline/states_adjoint_1year_hourlysaves/v.nc", "v");
+    etaadj_baseline = ncread("./experiments/initcond_baseline/states_adjoint_1year_hourlysaves/eta.nc", "eta");
 
-    # ekf_avgu_baseline = load_object("./experiments/initcond_baseline/ekf_avgu_initcond_baseline.jld2");
-    # ekf_avgv_baseline = load_object("./experiments/initcond_baseline/ekf_avgv_initcond_baseline.jld2");
-    # ekf_avgeta_baseline = load_object("./experiments/initcond_baseline/ekf_avgeta_initcond_baseline.jld2");
+    ekf_avgu_baseline = load_object("./experiments/initcond_baseline/ekf_avgu_initcond_baseline.jld2");
+    ekf_avgv_baseline = load_object("./experiments/initcond_baseline/ekf_avgv_initcond_baseline.jld2");
+    ekf_avgeta_baseline = load_object("./experiments/initcond_baseline/ekf_avgeta_initcond_baseline.jld2");
 
-    ekf_avgu_baseline = load_object("./ekf_avgu_halfsigmainitcond.jld2");
-    ekf_avgv_baseline = load_object("./ekf_avgv_halfsigmainitcond.jld2");
-    ekf_avgeta_baseline = load_object("./ekf_avgeta_halfsigmainitcond.jld2");
+    # ekf_avgu_baseline = load_object("./ekf_avgu_halfsigmainitcond.jld2");
+    # ekf_avgv_baseline = load_object("./ekf_avgv_halfsigmainitcond.jld2");
+    # ekf_avgeta_baseline = load_object("./ekf_avgeta_halfsigmainitcond.jld2");
 
     # every 4 day data
 
     states_pred_4 = load_object("./experiments/initcond_dataevery4days/states_pred_initcond_4daydata.jld2");
 
-    uadj_4 = ncread("./experiments/initcond_dataevery4days/states_adjoint_4daydata_30day_hourlysaves/u.nc", "u");
-    vadj_4 = ncread("./experiments/initcond_dataevery4days/states_adjoint_4daydata_30day_hourlysaves/v.nc", "v");
-    etaadj_4 = ncread("./experiments/initcond_dataevery4days/states_adjoint_4daydata_30day_hourlysaves/eta.nc", "eta");
+    uadj_4 = ncread("./experiments/initcond_dataevery4days/states_adjoint_1year_hourlysaves/u.nc", "u");
+    vadj_4 = ncread("./experiments/initcond_dataevery4days/states_adjoint_1year_hourlysaves/v.nc", "v");
+    etaadj_4 = ncread("./experiments/initcond_dataevery4days/states_adjoint_1year_hourlysaves/eta.nc", "eta");
 
     ekf_avgu_4 = load_object("./experiments/initcond_dataevery4days/ekf_avgu_initcond_4daydata.jld2");
     ekf_avgv_4 = load_object("./experiments/initcond_dataevery4days/ekf_avgv_initcond_4daydata.jld2");
@@ -900,9 +901,9 @@ function load_models()
 
     states_pred_dense = load_object("./experiments/initcond_denserspatialdata/states_pred_initcond_denserspatialdata.jld2");
 
-    uadj_dense = ncread("./experiments/initcond_denserspatialdata/states_adjoint_denserspatialdata_30days_hourlysaves/u.nc", "u");
-    vadj_dense = ncread("./experiments/initcond_denserspatialdata/states_adjoint_denserspatialdata_30days_hourlysaves/v.nc", "v");
-    etaadj_dense = ncread("./experiments/initcond_denserspatialdata/states_adjoint_denserspatialdata_30days_hourlysaves/eta.nc", "eta");
+    uadj_dense = ncread("./experiments/initcond_denserspatialdata/states_adjoint_1year_hourlysaves/u.nc", "u");
+    vadj_dense = ncread("./experiments/initcond_denserspatialdata/states_adjoint_1year_hourlysaves/v.nc", "v");
+    etaadj_dense = ncread("./experiments/initcond_denserspatialdata/states_adjoint_1year_hourlysaves/eta.nc", "eta");
 
     ekf_avgu_dense = load_object("./experiments/initcond_denserspatialdata/ekf_avgu_initcond_denserspatialdata.jld2");
     ekf_avgv_dense = load_object("./experiments/initcond_denserspatialdata/ekf_avgv_initcond_denserspatialdata.jld2");
@@ -912,9 +913,9 @@ function load_models()
 
     states_pred_noeta = load_object("./experiments/initcond_noetadata/states_pred_initcond_noetadata.jld2");
 
-    uadj_noeta = ncread("./experiments/initcond_noetadata/states_adjoint_noetadata_30days_hourlysaves/u.nc", "u");
-    vadj_noeta = ncread("./experiments/initcond_noetadata/states_adjoint_noetadata_30days_hourlysaves/v.nc", "v");
-    etaadj_noeta = ncread("./experiments/initcond_noetadata/states_adjoint_noetadata_30days_hourlysaves/eta.nc", "eta");
+    uadj_noeta = ncread("./experiments/initcond_noetadata/states_adjoint_1year_hourlysaves/u.nc", "u");
+    vadj_noeta = ncread("./experiments/initcond_noetadata/states_adjoint_1year_hourlysaves/v.nc", "v");
+    etaadj_noeta = ncread("./experiments/initcond_noetadata/states_adjoint_1year_hourlysaves/eta.nc", "eta");
 
     ekf_avgu_noeta = load_object("./experiments/initcond_noetadata/ekf_avgu_initcond_noetadata.jld2");
     ekf_avgv_noeta = load_object("./experiments/initcond_noetadata/ekf_avgv_initcond_noetadata.jld2");
@@ -993,7 +994,7 @@ function prognostic_fields()
     ax1, hm1 = heatmap(fig[1,1],
         states_pred[t].u,
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, -)")
     )
     Colorbar(fig[1,2], hm1)
@@ -1001,7 +1002,7 @@ function prognostic_fields()
     ax2, hm2 = heatmap(fig[1,3], 
         states_pred[t].v,
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, -)")
     );
     Colorbar(fig[1,4], hm2)
@@ -1064,23 +1065,23 @@ function prognostic_fields()
     ax1, hm1 = heatmap(fig[1,1],
         udata[:,:,t+1],
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"u(t = 30 \; \text{days}, x, y)")
     )
     Colorbar(fig[1,2], hm1)
 
     ax3, hm3 = heatmap(fig[1, 3], 
-        ekf_avgu[t],
+        ekf_avgu_baseline[t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig[1,4], hm3)
 
     ax2, hm2 = heatmap(fig[1,5], 
-        uadj[:,:,t+1],
+        uadj_baseline[:,:,t+1],
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,31])), maximum(abs.(udata[:,:,31]))),
+        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, +)")
     );
     Colorbar(fig[1,6], hm2)
@@ -1088,73 +1089,148 @@ function prognostic_fields()
     ax4, hm4 = heatmap(fig[2,1],
         vdata[:,:,t+1],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)")
     )
     Colorbar(fig[2,2], hm4)
 
     ax6, hm6 = heatmap(fig[2, 3], 
-        ekf_avgv[t],
+        ekf_avgv_baseline[t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig[2,4], hm6)
 
     ax5, hm5 = heatmap(fig[2,5], 
-        vadj[:,:,t+1],
+        vadj_baseline[:,:,t+1],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
     );
     Colorbar(fig[2,6], hm5)
 
 
     # results for v field
-    fig = Figure(size=(1000,300));
+    fig = Figure(size=(1000,600));
     t = 748
 
     ax0, hm0 = heatmap(fig[1,1],
-        vdata[:,:,31],
+        vadj_4[:,:,t+1],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
-        axis=(xlabel=L"x", ylabel=L"y", title=L"v(t = 30 \; \text{days}, x, y)")
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
     )
     Colorbar(fig[1,2], hm0)
 
     ax1, hm1 = heatmap(fig[1,3], 
-        states_adj[t].v,
+        vadj_dense[:,:,t+1],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
     );
     Colorbar(fig[1,4], hm1)
 
     ax2, hm2 = heatmap(fig[1, 5], 
-        ekf_avgv[t],
+        vadj_noeta[:,:,t+1],
         colormap=:balance,
-        colorrange=(-maximum(abs.(vdata[:,:,31])), maximum(abs.(vdata[:,:,31]))),
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig[1,6], hm2)
 
-    ax2, hm2 = heatmap(fig[1,3],
-        abs.(vdata[:,:,31] .- states_adj[t].v),
-        colormap=:amp,
-        # colorrange=(0,
-        # 1.5),
-        axis=(xlabel=L"x", ylabel=L"y", title=L"|v(x,y) - \tilde{v}(x, y, +)|")
-    )
-    Colorbar(fig[1,4], hm2)
+    ax3, hm3 = heatmap(fig[2, 1], 
+        ekf_avgv_4[t],
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
+    );
+    Colorbar(fig[2,2], hm0)
 
+    ax3, hm3 = heatmap(fig[2, 3], 
+        ekf_avgv_dense[t],
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
+    );
+    Colorbar(fig[2,4], hm0)
 
-    ax4, hm4 = heatmap(fig[2,3], abs.(vdata[:,:,31] .- ekf_avgv[t]),
-        colormap=:amp,
-        # colorrange=(0,
-        # 1.5),
-        axis=(xlabel=L"x", ylabel=L"y", title=L"|v(x,y) - \tilde{v}(x, y)|")
+    ax3, hm3 = heatmap(fig[2, 5], 
+        ekf_avgv_noeta[t],
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
+    );
+    Colorbar(fig[2,6], hm0)
+
+    # difference plot for v fields
+
+    fig = Figure(size=(1000,600));
+    t = 748
+
+    ax0, hm0 = heatmap(fig[1,1],
+        abs.(vadj_baseline[:,:,t+1] .- vdata[:,:,t+1]),
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)"),
     )
-    Colorbar(fig[2,4], hm4)
+    Colorbar(fig[1,2], hm0)
+
+    ax0, hm0 = heatmap(fig[1,3],
+        abs.(vadj_4[:,:,t+1] .- vdata[:,:,t+1]),
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)"),
+    )
+    Colorbar(fig[1,4], hm0)
+
+    ax1, hm1 = heatmap(fig[1,5], 
+        abs.(vadj_dense[:,:,t+1] .- vdata[:,:,t+1]),
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, +)")
+    );
+    Colorbar(fig[1,6], hm1)
+
+    ax2, hm2 = heatmap(fig[1, 7], 
+        abs.(vadj_noeta[:,:,t+1] .- vdata[:,:,t+1]),
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
+    );
+    Colorbar(fig[1,8], hm2)
+
+    ax3, hm3 = heatmap(fig[2, 1], 
+        abs.(ekf_avgv_baseline[t] .- vdata[:,:,t+1]),
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
+    );
+    Colorbar(fig[2,2], hm0)
+
+    ax3, hm3 = heatmap(fig[2, 3], 
+        abs.(ekf_avgv_4[t] .- vdata[:,:,t+1]),
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
+    );
+    Colorbar(fig[2,4], hm0)
+
+    ax3, hm3 = heatmap(fig[2, 5], 
+        abs.(ekf_avgv_dense[t] .- vdata[:,:,t+1]),
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
+    );
+    Colorbar(fig[2,6], hm0)
+
+    ax3, hm3 = heatmap(fig[2, 7],
+        abs.(ekf_avgv_noeta[t] .- vdata[:,:,t+1]),
+        colormap=:balance,
+        colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y)")
+    );
+    Colorbar(fig[2,8], hm0)
 
 end
 
@@ -1515,7 +1591,7 @@ function generating_models()
         bottom_drag="quadratic",
         α=2,
         nx=128,
-        Ndays=10*365
+        Ndays=3*365
     );
     S = ShallowWaters.model_setup(P);
     ShallowWaters.time_integration(S)
@@ -1535,17 +1611,17 @@ function generating_models()
         bottom_drag="quadratic",
         α=2,
         nx=128,
-        Ndays=90,
+        Ndays=365,
         initial_cond="ncfile",
         initpath="./data_files/128_10yearspinup"
     );
-    S = ShallowWaters.model_setup(P);
+    S_adj = ShallowWaters.model_setup(P);
     uic = S_adj.parameters.T.(zeros(127,128));
     vic = S_adj.parameters.T.(zeros(128,127));
     etaic = S_adj.parameters.T.(zeros(128,128));
     current = 1
     # result = load_object("./experiments/initcond_baseline/optimizer_result_initcond_baseline.jld2").solution;
-    # result = load_object("./experiments/initcond_dataevery4days/optimizerres_initcond_4daydata.jld2").solution;
+    # result = load_object("./experiments/initcond_dataevery4days/optimizer_result_initcond_4daydata.jld2").solution;
     # result = load_object("./experiments/initcond_denserspatialdata/optimizer_result_initcond_denserspatialdata.jld2").solution;
     result = load_object("./experiments/initcond_noetadata/result_optimizer_initcond_noetadata.jld2").solution;
     for m in (uic, vic, etaic)
