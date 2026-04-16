@@ -668,10 +668,6 @@ function bottomdrag_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
 
 end
 
-"""
-Trying something
-"""
-
 function run_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=false)
 
     N = model.N
@@ -988,7 +984,7 @@ function run_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=fal
             # tempinv = (temp' * temp)^(-1) * temp'
             W = Y'*(tempinv)*D̃
 
-            Z += A*W #./ (sqrt(N - 1))
+            Z += A*W ./ (sqrt(N - 1))
 
             println("Norm of the ensemble array: ", norm(Z))
 
@@ -1054,8 +1050,11 @@ function compute_bred_vectors(N, sigma_initcond, uic_nohalo, vic_nohalo, etaic_n
     utrue = ncread("./data_files/128_90days_postspinup_dailysaves/u.nc", "u")[:,:,1];
     etatrue = ncread("./data_files/128_90days_postspinup_dailysaves/eta.nc", "eta")[:,:,1];
 
-    sigma_bvu = ( (sum(abs.(utrue .- uic_nohalo)) / (128*127)) )/ 5
-    sigma_bveta = ( (sum(abs.(etatrue .- etaic_nohalo)) / (128^2)) )/ 5
+    # sigma_bvu = ( (sum(abs.(utrue .- uic_nohalo)) / (128*127)) ) / 5
+    # sigma_bveta = ( (sum(abs.(etatrue .- etaic_nohalo)) / (128^2)) ) / 5
+
+    sigma_bvu = ( (norm(utrue .- uic_nohalo)) / sqrt(128*127)) / 5
+    sigma_bveta = ( (norm(etatrue .- etaic_nohalo)) / sqrt(128^2)) / 5
 
     println("sigma_bvu: ", sigma_bvu)
     println("sigma_bveta: ", sigma_bveta)
@@ -1065,11 +1064,9 @@ function compute_bred_vectors(N, sigma_initcond, uic_nohalo, vic_nohalo, etaic_n
     for n = 1:N
 
         P = parameters
+        P.Ndays = 1
         S1 = ShallowWaters.model_setup(P)
         S2 = ShallowWaters.model_setup(P)
-
-        S1.parameters.Ndays = 1
-        S2.parameters.Ndays = 1
 
         upred,vpred,etapred,_ = ShallowWaters.add_halo(uic_nohalo,vic_nohalo,etaic_nohalo,zeros(128,128),S1)
 
@@ -1079,38 +1076,44 @@ function compute_bred_vectors(N, sigma_initcond, uic_nohalo, vic_nohalo, etaic_n
         S1.Prog.η = copy(etapred)
 
         # S2 will iterate the perturbed solutions
-        S2.Prog.u = copy(upred)
-        S2.Prog.v = copy(vpred)
-        S2.Prog.η = copy(etapred)
+        # S2.Prog.u = copy(upred)
+        # S2.Prog.v = copy(vpred)
+        # S2.Prog.η = copy(etapred)
 
-        Prog = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(S2.Prog.u,
-            S2.Prog.v,
-            S2.Prog.η,
-            S2.Prog.sst,
-            S2)...
-        )
+        # Prog = ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(S2.Prog.u,
+        #     S2.Prog.v,
+        #     S2.Prog.η,
+        #     S2.Prog.sst,
+        #     S2)...
+        # )
 
         # perturb initial conditions from the guessed value for each ensemble member
-        upert = sigma_bvu .* randn(size(Prog.u))
-        vpert = sigma_bvu .* randn(size(Prog.v))
-        etapert = sigma_bveta .* randn(size(Prog.η))
+
+        # compute the perturbations
+        upert = sigma_bvu .* randn(size(uic_nohalo))
+        vpert = sigma_bvu .* randn(size(vic_nohalo))
+        etapert = sigma_bveta .* randn(size(etaic_nohalo))
 
         # computing norms of the initial perturbations
         Au = norm(upert)
         Av = norm(vpert)
         Aeta = norm(etapert)
 
-        # apply the perturbation to the initial condition
-        Prog.u = Prog.u + upert
-        Prog.v = Prog.v + vpert
-        Prog.η = Prog.η + etapert
+        # add them to the initial condition and add the halo
+        uperturbed_halo, vperturbed_halo, etaperturbed_halo, _ =  ShallowWaters.add_halo(uic_nohalo +upert,
+            vic_nohalo + vpert,
+            etaic_nohalo + etapert,
+            zeros(128,128),
+            S2
+        )
 
-        uperturbed,vperturbed,etaperturbed,_ = ShallowWaters.add_halo(Prog.u,Prog.v,Prog.η,zeros(128,128),S2)
+        println("Norm of u perturbed: ", Au)
+        println("Norm of u_true - u_ic: ", norm(utrue .- uic_nohalo))
 
         # store this in S2
-        S2.Prog.u = uperturbed
-        S2.Prog.v = vperturbed
-        S2.Prog.η = etaperturbed
+        S2.Prog.u = uperturbed_halo
+        S2.Prog.v = vperturbed_halo
+        S2.Prog.η = etaperturbed_halo
 
         # Store the two initial models to be integrated
         S_all = []
@@ -1163,13 +1166,14 @@ function compute_bred_vectors(N, sigma_initcond, uic_nohalo, vic_nohalo, etaic_n
             copyto!(Diag.SemiLagrange.sst_ref,sst)
         end
 
-        # I need to change this to be (1) do the following for one day, get the new perturbation, perturb, and then restart the day
         for i = 1:20
 
             if i === 20
 
                 S_all[1].parameters.Ndays=1
                 S_all[2].parameters.Ndays=1
+
+                println("Number of timesteps being integrated: ", S_all[1].grid.nt)
 
                 p1 = ShallowWaters.time_integration(deepcopy(S_all[1]));
                 p2 = ShallowWaters.time_integration(deepcopy(S_all[2]));

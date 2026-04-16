@@ -127,6 +127,7 @@ function initcond_model_setup(T, Ndays, N, data, sigma_data, sigma_initcond, dat
     param_guess = [vec(Prog_pred.u); vec(Prog_pred.v); vec(Prog_pred.η)]
 
     Spred = deepcopy(S_pred)
+    # ShallowWaters.time_integration(Spred)
     pred_states = hourly_save_run(Spred)
 
     # doing deepcopies to be 100% sure that I'm not messing with the model at any point during setup
@@ -1166,7 +1167,7 @@ function prognostic_fields()
     # difference plot for v fields
 
     fig = Figure(size=(1000,600));
-    t = 748
+    t = 100
 
     ax0, hm0 = heatmap(fig[1,1],
         abs.(vadj_baseline[:,:,t+1] .- vdata[:,:,t+1]),
@@ -1224,7 +1225,7 @@ function prognostic_fields()
     );
     Colorbar(fig[2,6], hm0)
 
-    ax3, hm3 = heatmap(fig[2, 7],
+    ax3, hm3 = heatmap(fig[2, 7], 
         abs.(ekf_avgv_noeta[t] .- vdata[:,:,t+1]),
         colormap=:balance,
         colorrange=(-maximum(abs.(vdata[:,:,t])), maximum(abs.(vdata[:,:,t]))),
@@ -1288,18 +1289,18 @@ function energy_plots()
     pred_energy = zeros(748)
     ekf_energy = zeros(748)
 
-    for t = 1:2245
+    for t = 1:748
 
         true_energy[t] = (sum(udata[:,:,t].^2) + sum(vdata[:,:,t].^2)) / (128 * 127)
-        # pred_energy[t] = (sum(uadj_baseline[:,:,t+1].^2) + sum(vadj_baseline[:,:,t+1].^2)) / (128 * 127)
-        # ekf_energy[t] = (sum(ekf_avgu_baseline[t].^2) + sum(ekf_avgv_baseline[t].^2)) / (128 * 127)
+        pred_energy[t] = (sum(states_pred[t].u.^2) + sum(states_pred[t].v.^2)) / (128 * 127)
+        ekf_energy[t] = (sum(ekf_avgu[t].^2) + sum(ekf_avgv[t].^2)) / (128 * 127)
 
     end
 
     fig = Figure(size=(800, 700));
     ax = Axis(fig[1,1])
-    lines!(ax, LinRange(0, 6750, 748), true_energy, label="Truth")
-    lines!(ax,LinRange(0, 6750, 748), pred_energy, label="Adjoint")
+    lines!(ax, LinRange(0, 6750, 748), true_energy[1:748], label="Truth")
+    lines!(ax,LinRange(0, 6750, 748), pred_energy, label="Prediction",linestyle=:dash)
     lines!(ax,LinRange(0, 6750, 748), ekf_energy, label="EKF")
     vlines!(ax, data_steps, color=:gray75, linestyle=:dot);
     axislegend()
