@@ -708,8 +708,12 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
         # daily data
         data_steps = 225:224:S.grid.nt
 
-        xu = 30:10:100
-        yu = 40:10:100
+        xu = 20:5:110
+        yu = 20:5:110
+
+        # xu = 5:1:125
+        # yu = 5:1:125
+
         Xu = xu' .* ones(length(yu))
         Yu = ones(length(xu))' .* yu
 
@@ -718,6 +722,9 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
         data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
         data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
         data_spots = [data_spotsu; data_spotsv; data_spotseta]
+
+        # data_spots = 1:1:(128*127*2 + 128^2)
+
         udata=true
         vdata=true
         etadata=true
@@ -807,36 +814,36 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
     ekf_avgu, ekf_avgv, ekf_avgeta = run_ensemble_kf(ekf_model, param_guess;udata=udata,vdata=vdata,etadata=etadata)
 
     # run the adjoint optimization
-    qn_options = MadNLP.QuasiNewtonOptions(; max_history=100)
-    result = madnlp(
-        adj_model;
-        # linear_solver=LapackCPUSolver,
-        hessian_approximation=MadNLP.CompactLBFGS,
-        quasi_newton_options=qn_options,
-        max_iter=150,
-        acceptable_tol = 1e-3
-    )
+    # qn_options = MadNLP.QuasiNewtonOptions(; max_history=100)
+    # result = madnlp(
+    #     adj_model;
+    #     # linear_solver=LapackCPUSolver,
+    #     hessian_approximation=MadNLP.CompactLBFGS,
+    #     quasi_newton_options=qn_options,
+    #     max_iter=150,
+    #     acceptable_tol = 1e-3
+    # )
 
-    # integrate with the result from the optimization
-    S_adj = ShallowWaters.model_setup(P_pred)
-    S_adj.parameters.output=true
-    S_adj.parameters.output_dt=1
-    uic = S_adj.parameters.T.(zeros(127,128))
-    vic = S_adj.parameters.T.(zeros(128,127))
-    etaic = S_adj.parameters.T.(zeros(128,128))
-    current = 1
-    for m in (uic, vic, etaic)
-        sz = prod(size(m))
-        m .= reshape(result.solution[current:(current + sz - 1)], size(m)...)
-        current += sz
-    end
-    utuned,vtuned,etatuned,_ = ShallowWaters.add_halo(uic,vic,etaic,zeros(128,128),S_adj)
-    S_adj.Prog.u = utuned
-    S_adj.Prog.v = vtuned
-    S_adj.Prog.η = etatuned
-    states_adj = ShallowWaters.time_integration(S_adj)
+    # # integrate with the result from the optimization
+    # S_adj = ShallowWaters.model_setup(P_pred)
+    # S_adj.parameters.output=true
+    # S_adj.parameters.output_dt=1
+    # uic = S_adj.parameters.T.(zeros(127,128))
+    # vic = S_adj.parameters.T.(zeros(128,127))
+    # etaic = S_adj.parameters.T.(zeros(128,128))
+    # current = 1
+    # for m in (uic, vic, etaic)
+    #     sz = prod(size(m))
+    #     m .= reshape(result.solution[current:(current + sz - 1)], size(m)...)
+    #     current += sz
+    # end
+    # utuned,vtuned,etatuned,_ = ShallowWaters.add_halo(uic,vic,etaic,zeros(128,128),S_adj)
+    # S_adj.Prog.u = utuned
+    # S_adj.Prog.v = vtuned
+    # S_adj.Prog.η = etatuned
+    # states_adj = ShallowWaters.time_integration(S_adj)
 
-    return ekf_avgu, ekf_avgv, ekf_avgeta, result, S_adj, states_adj, S_pred, states_pred
+    return ekf_avgu, ekf_avgv, ekf_avgeta, S_pred, states_pred#, result, S_adj, states_adj, 
 
 end
 
@@ -1010,10 +1017,10 @@ function prognostic_fields()
 
     # results for u and v fields next to the prediction
     fig = Figure(size=(1000,600));
-    t = 748
+    t = 24
 
     ax1, hm1 = heatmap(fig[1,1],
-        states_pred_baseline[t].u,
+        udata[:,:,t],
         colormap=:balance,
         colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, -)")
@@ -1021,7 +1028,7 @@ function prognostic_fields()
     Colorbar(fig[1,2], hm1)
 
     ax3, hm3 = heatmap(fig[1, 3], 
-        ekf_avgu_baseline[t],
+        ekf_avgu[t],
         colormap=:balance,
         colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y)")

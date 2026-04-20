@@ -239,6 +239,454 @@ This function will run the ensemble Kalman filter. It needs to be given:
 
 # end
 
+function create_ensemble(model, N, param_guess)
+
+    S_all = []
+
+    uic = model.S.parameters.T.(zeros(model.S.grid.nux,model.S.grid.nuy))
+    vic = model.S.parameters.T.(zeros(model.S.grid.nvx,model.S.grid.nvy))
+    etaic = model.S.parameters.T.(zeros(model.S.grid.nx,model.S.grid.ny))
+    current = 1
+    for m in (uic, vic, etaic)
+        sz = prod(size(m))
+        m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
+        current += sz
+    end
+
+    bred_vectors = compute_bred_vectors(N,sigma_initcond,uic,vic,etaic,model.S.parameters)
+
+    upert = zeros(size(uic))
+    vpert = zeros(size(vic))
+    etapert = zeros(size(etaic))
+
+    for n = 1:N
+
+        current = 1
+        for m in (uic, vic, etaic)
+            sz = prod(size(m))
+            m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
+            current += sz
+        end
+
+        upert = upert .* 0
+        vpert = vpert .* 0
+        etapert = etapert .* 0
+
+        S_kf = deepcopy(model.S)
+
+        #only keeping this so I have an sst field without a halo for later step
+        P_kf = ShallowWaters.PrognosticVars{S_kf.parameters.Tprog}(ShallowWaters.remove_halo(S_kf.Prog.u,
+            S_kf.Prog.v,
+            S_kf.Prog.η,
+            S_kf.Prog.sst,
+            S_kf)...
+        )
+
+        # # using a frequency space initial perturbation
+        # for n = 1:5
+        #     for m = 1:5
+        #         urand = randn(4)
+        #         vrand = randn(4)
+        #         for k = 1:127
+        #             for j = 1:128
+        #                 upert[k,j] += sigma_initcond * urand[1] * cos((pi * n / 127) * k)*cos(pi * m / 128 * j)
+        #                     + sigma_initcond * urand[2] * sin((pi * n / 127) * k)*cos(pi * m / 128 * j)
+        #                     + sigma_initcond * urand[3] * cos((pi * n / 127) * k)*sin(pi * m / 128 * j)
+        #                     + sigma_initcond * urand[4] * sin((pi * n / 127) * k)*sin(pi * m / 128 * j)
+        #                 vpert[j,k] += sigma_initcond * vrand[1] * cos(pi * n / 128 * j) * cos(pi * m / 127 * k)
+        #                     + sigma_initcond * vrand[2] * cos(pi * n / 128 * j) * sin(pi * m / 127 * k)
+        #                     + sigma_initcond * vrand[3] * sin(pi * n / 128 * j) * cos(pi * m / 127 * k)
+        #                     + sigma_initcond * vrand[4] * sin(pi * n / 128 * j) * sin(pi * m / 127 * k)
+        #             end
+        #         end
+
+        #     end
+        # end
+
+        # for n = 1:5
+        #     for m = 1:5
+        #         etarand = randn(4)
+        #         for k = 1:128
+        #             for j = 1:128
+        #                 etapert[k,j] += sigma_initcond * etarand[1] * cos((pi * n / 128) * k)*cos(pi * m / 128 * j)
+        #                     + sigma_initcond * etarand[2] * cos((pi * n / 128) * k)*sin(pi * m / 128 * j)
+        #                     + sigma_initcond * etarand[3] * sin((pi * n / 128) * k)*cos(pi * m / 128 * j)
+        #                     + sigma_initcond * etarand[4] * sin((pi * n / 128) * k)*sin(pi * m / 128 * j)
+        #             end
+        #         end
+        #     end
+        # end
+        # uic = uic + upert ./ 5
+        # vic = vic + vpert ./ 5
+        # etaic = etaic + etapert ./ 5
+
+        # # using just random noise to perturb the initial conditions in each ensemble member
+        # uic = uic + model.sigma_initcond.*randn(size(uic)) ./ 5
+        # vic = vic + model.sigma_initcond.*randn(size(vic)) ./ 5
+        # etaic = etaic + model.sigma_initcond.*randn(size(etaic)) ./ 5
+
+        # using bred vectors to perturb initial condition in each ensemble member
+        uic .= uic + reshape(bred_vectors[n][1:model.S.grid.nu], model.S.grid.nux, model.S.grid.nuy)
+        vic .= vic + reshape(bred_vectors[n][(model.S.grid.nu+1):(model.S.grid.nu+model.S.grid.nv)], model.S.grid.nvx, model.S.grid.nvy)
+        etaic .= etaic + reshape(bred_vectors[n][(model.S.grid.nu+model.S.grid.nv+1):end], model.S.grid.nx, model.S.grid.ny)
+
+        uic_new,vic_new,etaic_new = ShallowWaters.add_halo(uic,vic,etaic,P_kf.sst,S_kf)
+
+        S_kf.Prog.u = uic_new
+        S_kf.Prog.v = vic_new
+        S_kf.Prog.η = etaic_new
+
+        Diag = S_kf.Diag
+        Prog = S_kf.Prog
+
+        # for each ensemble member we want to do the steps that occur before the integration
+        @unpack u,v,η,sst = Prog
+        @unpack u0,v0,η0 = Diag.RungeKutta
+        @unpack u1,v1,η1 = Diag.RungeKutta
+        @unpack du,dv,dη = Diag.Tendencies
+        @unpack du_sum,dv_sum,dη_sum = Diag.Tendencies
+        @unpack du_comp,dv_comp,dη_comp = Diag.Tendencies
+    
+        @unpack um,vm = Diag.SemiLagrange
+    
+        @unpack dynamics,RKo,RKs,tracer_advection = S_kf.parameters
+        @unpack time_scheme,compensated = S_kf.parameters
+        @unpack RKaΔt,RKbΔt = S_kf.constants
+        @unpack Δt_Δ,Δt_Δs = S_kf.constants
+    
+        @unpack nt,dtint = S_kf.grid
+        @unpack nstep_advcor,nstep_diff,nadvstep,nadvstep_half = S_kf.grid
+    
+        # calculate layer thicknesses for initial conditions
+        ShallowWaters.thickness!(Diag.VolumeFluxes.h,η,S_kf.forcing.H)
+        ShallowWaters.Ix!(Diag.VolumeFluxes.h_u,Diag.VolumeFluxes.h)
+        ShallowWaters.Iy!(Diag.VolumeFluxes.h_v,Diag.VolumeFluxes.h)
+        ShallowWaters.Ixy!(Diag.Vorticity.h_q,Diag.VolumeFluxes.h)
+    
+        # calculate PV terms for initial conditions
+        urhs = S_kf.Diag.PrognosticVarsRHS.u .= S_kf.Prog.u
+        vrhs = S_kf.Diag.PrognosticVarsRHS.v .= S_kf.Prog.v
+        ηrhs = S_kf.Diag.PrognosticVarsRHS.η .= S_kf.Prog.η
+    
+        ShallowWaters.advection_coriolis!(urhs,vrhs,ηrhs,Diag,S_kf)
+        ShallowWaters.PVadvection!(Diag,S_kf)
+    
+        # propagate initial conditions
+        copyto!(u0,u)
+        copyto!(v0,v)
+        copyto!(η0,η)
+    
+        # store initial conditions of sst for relaxation
+        copyto!(Diag.SemiLagrange.sst_ref,sst)
+
+        # store all of the ensemble models
+        push!(S_all, S_kf)
+
+    end
+
+end
+
+function integrate_ensemble(N, nt, j, S_all, data_spots)
+
+    for i = 1:nt
+
+        Progkf = []
+
+        for n = 1:N
+
+            t = S_all[n].t
+
+            # ghost point copy for boundary conditions
+            ShallowWaters.ghost_points!(S_all[n].Prog.u, S_all[n].Prog.v, S_all[n].Prog.η, S_all[n])
+            copyto!(S_all[n].Diag.RungeKutta.u1, S_all[n].Prog.u)
+            copyto!(S_all[n].Diag.RungeKutta.v1, S_all[n].Prog.v)
+            copyto!(S_all[n].Diag.RungeKutta.η1, S_all[n].Prog.η)
+
+            if S_all[n].parameters.compensated
+            fill!(S_all[n].Diag.Tendencies.du_sum, zero(S_all[n].parameters.Tprog))
+            fill!(S_all[n].Diag.Tendencies.dv_sum, zero(S_all[n].parameters.Tprog))
+            fill!(S_all[n].Diag.Tendencies.dη_sum, zero(S_all[n].parameters.Tprog))
+            end
+
+            for rki = 1:S_all[n].parameters.RKo
+            if rki > 1
+            ShallowWaters.ghost_points!(
+            S_all[n].Diag.RungeKutta.u1,
+            S_all[n].Diag.RungeKutta.v1,
+            S_all[n].Diag.RungeKutta.η1,
+            S_all[n]
+            )
+            end
+
+            # type conversion for mixed precision
+            u1rhs = S_all[n].Diag.PrognosticVarsRHS.u .= S_all[n].Diag.RungeKutta.u1
+            v1rhs = S_all[n].Diag.PrognosticVarsRHS.v .= S_all[n].Diag.RungeKutta.v1
+            η1rhs = S_all[n].Diag.PrognosticVarsRHS.η .= S_all[n].Diag.RungeKutta.η1
+
+            ShallowWaters.rhs!(u1rhs, v1rhs, η1rhs, S_all[n].Diag, S_all[n], t)          # momentum only
+            ShallowWaters.continuity!(u1rhs, v1rhs, η1rhs, S_all[n].Diag, S_all[n], t)   # continuity equation
+
+            if rki < S_all[n].parameters.RKo
+            ShallowWaters.caxb!(
+            S_all[n].Diag.RungeKutta.u1,
+            S_all[n].Prog.u,
+            S_all[n].constants.RKbΔt[rki],
+            S_all[n].Diag.Tendencies.du
+            )
+            ShallowWaters.caxb!(
+            S_all[n].Diag.RungeKutta.v1,
+            S_all[n].Prog.v,
+            S_all[n].constants.RKbΔt[rki],
+            S_all[n].Diag.Tendencies.dv
+            )
+            ShallowWaters.caxb!(
+            S_all[n].Diag.RungeKutta.η1,
+            S_all[n].Prog.η,
+            S_all[n].constants.RKbΔt[rki],
+            S_all[n].Diag.Tendencies.dη
+            )
+            end
+
+            if S_all[n].parameters.compensated
+            ShallowWaters.axb!(S_all[n].Diag.Tendencies.du_sum, S_all[n].constants.RKaΔt[rki], S_all[n].Diag.Tendencies.du)
+            ShallowWaters.axb!(S_all[n].Diag.Tendencies.dv_sum, S_all[n].constants.RKaΔt[rki], S_all[n].Diag.Tendencies.dv)
+            ShallowWaters.axb!(S_all[n].Diag.Tendencies.dη_sum, S_all[n].constants.RKaΔt[rki], S_all[n].Diag.Tendencies.dη)
+            else
+            ShallowWaters.axb!(
+            S_all[n].Diag.RungeKutta.u0,
+            S_all[n].constants.RKaΔt[rki],
+            S_all[n].Diag.Tendencies.du
+            )
+            ShallowWaters.axb!(
+            S_all[n].Diag.RungeKutta.v0,
+            S_all[n].constants.RKaΔt[rki],
+            S_all[n].Diag.Tendencies.dv
+            )
+            ShallowWaters.axb!(
+            S_all[n].Diag.RungeKutta.η0,
+            S_all[n].constants.RKaΔt[rki],
+            S_all[n].Diag.Tendencies.dη
+            )
+            end
+            end
+
+            if S_all[n].parameters.compensated
+            ShallowWaters.axb!(S_all[n].Diag.Tendencies.du_sum, -1, S_all[n].Diag.Tendencies.du_comp)
+            ShallowWaters.axb!(S_all[n].Diag.Tendencies.dv_sum, -1, S_all[n].Diag.Tendencies.dv_comp)
+            ShallowWaters.axb!(S_all[n].Diag.Tendencies.dη_sum, -1, S_all[n].Diag.Tendencies.dη_comp)
+
+            ShallowWaters.axb!(S_all[n].Diag.RungeKutta.u0, 1, S_all[n].Diag.Tendencies.du_sum)
+            ShallowWaters.axb!(S_all[n].Diag.RungeKutta.v0, 1, S_all[n].Diag.Tendencies.dv_sum)
+            ShallowWaters.axb!(S_all[n].Diag.RungeKutta.η0, 1, S_all[n].Diag.Tendencies.dη_sum)
+
+            ShallowWaters.dambmc!(
+            S_all[n].Diag.Tendencies.du_comp,
+            S_all[n].Diag.RungeKutta.u0,
+            S_all[n].Prog.u,
+            S_all[n].Diag.Tendencies.du_sum
+            )
+            ShallowWaters.dambmc!(
+            S_all[n].Diag.Tendencies.dv_comp,
+            S_all[n].Diag.RungeKutta.v0,
+            S_all[n].Prog.v,
+            S_all[n].Diag.Tendencies.dv_sum
+            )
+            ShallowWaters.dambmc!(
+            S_all[n].Diag.Tendencies.dη_comp,
+            S_all[n].Diag.RungeKutta.η0,
+            S_all[n].Prog.η,
+            S_all[n].Diag.Tendencies.dη_sum
+            )
+            end
+
+            ShallowWaters.ghost_points!(
+            S_all[n].Diag.RungeKutta.u0,
+            S_all[n].Diag.RungeKutta.v0,
+            S_all[n].Diag.RungeKutta.η0,
+            S_all[n]
+            )
+
+            u0rhs = S_all[n].Diag.PrognosticVarsRHS.u .= S_all[n].Diag.RungeKutta.u0
+            v0rhs = S_all[n].Diag.PrognosticVarsRHS.v .= S_all[n].Diag.RungeKutta.v0
+            η0rhs = S_all[n].Diag.PrognosticVarsRHS.η .= S_all[n].Diag.RungeKutta.η0
+
+            if S_all[n].parameters.dynamics == "nonlinear" && S_all[n].grid.nstep_advcor > 0 && (i % S_all[n].grid.nstep_advcor) == 0
+            ShallowWaters.UVfluxes!(u0rhs, v0rhs, η0rhs, S_all[n].Diag, S_all[n])
+            ShallowWaters.advection_coriolis!(u0rhs, v0rhs, η0rhs, S_all[n].Diag, S_all[n])
+            end
+
+            if (i % S_all[n].grid.nstep_diff) == 0
+            ShallowWaters.bottom_drag!(u0rhs, v0rhs, η0rhs, S_all[n].Diag, S_all[n])
+            ShallowWaters.diffusion!(u0rhs, v0rhs, S_all[n].Diag, S_all[n])
+            ShallowWaters.add_drag_diff_tendencies!(
+            S_all[n].Diag.RungeKutta.u0,
+            S_all[n].Diag.RungeKutta.v0,
+            S_all[n].Diag,
+            S_all[n]
+            )
+            ShallowWaters.ghost_points_uv!(
+            S_all[n].Diag.RungeKutta.u0,
+            S_all[n].Diag.RungeKutta.v0,
+            S_all[n]
+            )
+            end
+
+            t += S_all[n].grid.dtint
+
+            u0rhs = S_all[n].Diag.PrognosticVarsRHS.u .= S_all[n].Diag.RungeKutta.u0
+            v0rhs = S_all[n].Diag.PrognosticVarsRHS.v .= S_all[n].Diag.RungeKutta.v0
+            ShallowWaters.tracer!(i, u0rhs, v0rhs, S_all[n].Prog, S_all[n].Diag, S_all[n])
+
+            copyto!(S_all[n].Prog.u, S_all[n].Diag.RungeKutta.u0)
+            copyto!(S_all[n].Prog.v, S_all[n].Diag.RungeKutta.v0)
+            copyto!(S_all[n].Prog.η, S_all[n].Diag.RungeKutta.η0)
+
+            push!(Progkf, ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
+            S_all[n].Prog.u,
+            S_all[n].Prog.v,
+            S_all[n].Prog.η,
+            S_all[n].Prog.sst,
+            S_all[n]
+            )...)
+            )
+
+            end
+
+            if i in data_steps
+
+            kalman_update(Progkf, j, model, data_spots)
+
+            end
+
+            # storing hourly data points
+            if i ∈ 9:9:S_for_values.grid.nt
+                kf_avgu = zeros(model.S.grid.nux,model.S.grid.nuy)
+                kf_avgv = zeros(model.S.grid.nvx,model.S.grid.nvy)
+                kf_avgeta = zeros(model.S.grid.nx,model.S.grid.ny)
+                for n = 1:N
+                    kf_avgu = kf_avgu .+ Progkf[n].u
+                    kf_avgv = kf_avgv .+ Progkf[n].v
+                    kf_avgeta = kf_avgeta .+ Progkf[n].η
+                end
+                push!(ekf_avgu, (kf_avgu)./N)
+                push!(ekf_avgv, (kf_avgv)./N)
+                push!(ekf_avgeta, (kf_avgeta)./N)
+            end
+
+        end
+
+    end
+
+end
+
+function kalman_update(Progkf, j, data_spots; udata=true,vdata=true,etadata=true)
+
+    for n = 1:N
+        Z[:, n] = [vec(Progkf[n].u); vec(Progkf[n].v); vec(Progkf[n].η)]
+
+        if udata || udata && vdata || udata && vdata && etadata
+            U[:, n] = Z[Int.(data_spots), n]
+        elseif vdata
+            U[:, n] = Z[Int.(data_spots) .+ 128*127, n]
+        else etadata
+            U[:, n] = Z[Int.(data_spots) .+ 2*127*128, n]
+        end
+    end
+
+    E_fixed = (sigma_data .* randn(length(data_spots), N)) ./ sqrt(N-1)
+    d = data[:, j][data_spots]
+    D = d * ones(N)' + sqrt(N - 1) .* E_fixed
+    E = D * Π
+
+    println("Norm of E: ", norm(E))
+    println("Norm of E_fixed: ", norm(E_fixed))
+
+    println("Norm of E - E_fixed: ", norm(E - E_fixed))
+    A = Z * Π
+    Y = U * Π
+
+    if norm(D) == 0
+        error("The data is zero")
+    end
+
+    D̃ = D - U
+    temp = Y*Y' + cov(E_fixed[:] * sqrt(N-1), corrected=false) .* I(length(data_spots))
+    # temp = Y*Y' + E_fixed*E_fixed'
+    # tempinv = (temp' * temp)^(-1) * temp'
+    W = Y'*(inv(temp))*D̃
+
+    Z += A*W ./ (sqrt(N - 1))
+
+    println("Norm of the ensemble array: ", norm(Z))
+
+    if any(isnan, Z)
+        error("Ensemble array contains NaN values")
+    end
+
+    println("Norm of the difference between u and the updated u from Z: ", norm(vec(Progkf[1].u) .- Z[1:nu,1]))
+
+    for n = 1:N
+        Progkf[n].u .= reshape(Z[1:nu,n],S_for_values.grid.nux,S_for_values.grid.nuy)
+        Progkf[n].v .= reshape(Z[nu+1:nv+nu,n],S_for_values.grid.nvx,S_for_values.grid.nvy)
+        Progkf[n].η .= reshape(Z[nv+nu+1:nu+nv+nT,n],S_for_values.grid.nx,S_for_values.grid.ny)
+
+        u,v,eta = ShallowWaters.add_halo(Progkf[n].u,
+            Progkf[n].v,
+            Progkf[n].η,
+            Progkf[n].sst,
+            S_all[n]
+        )
+
+        S_all[n].Prog.u .= u
+        S_all[n].Prog.v .= v
+        S_all[n].Prog.η .= eta
+
+    end
+
+    j += 1
+
+end
+
+function ekf_run(model, param_guess; udata=false,vdata=false,etadata=false)
+
+    N = model.N
+    data = model.data
+    data_steps = model.data_steps
+    data_spots = model.data_spots
+    sigma_initcond = model.sigma_initcond
+    sigma_data = model.sigma_data
+    j = model.j
+
+    # save the average u, v, and eta values from the data assimilation
+    ekf_avgu = []
+    ekf_avgv = []
+    ekf_avgeta = []
+
+    Π = (I - (1 / N)*(ones(N) * ones(N)')) / sqrt(N - 1)
+    W = zeros(N,N)
+    T = zeros(N,N)
+
+    S_for_values = deepcopy(model.S)
+
+    nu = S_for_values.grid.nu
+    nv = S_for_values.grid.nv
+    nT = S_for_values.grid.nT
+
+    S = zeros(length(data_spots), N)
+    U = zeros(length(data_spots), N)
+
+    # Generate the initial model realization ensemble,
+    # generated by slightly perturbing the initial condition N times.
+    # Output will be stored in the matrix Z, and all model structs will be
+    # stored in S_all
+    # We assume that Z is the total state vector in size, so 48896 is the
+    # whole length of u + v + eta as a column vector
+    Z = zeros(model.S.grid.nu + model.S.grid.nv + model.S.grid.nT, N)
+
+    S_all = create_ensemble(model, N, param_guess)
+
+end
+
 function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=false)
 
     N = model.N
@@ -265,7 +713,7 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
     end
 
     Π = (I - (1 / N)*(ones(N) * ones(N)')) / sqrt(N - 1)
-    E_fixed = (sigma_data .* randn(length(data_spots), N)) ./ sqrt(N-1)
+    # E_fixed = (sigma_data .* randn(length(data_spots), N)) ./ sqrt(N-1)
     W = zeros(N,N)
     T = zeros(N,N)
 
@@ -393,7 +841,8 @@ function windstress_ensemble_kf(model, param_guess; udata=false,vdata=false,etad
             end
 
             d = data[:, j][data_spots]
-            D = d * ones(N)' + sqrt(N - 1) .* E_fixed
+            E_ = (sigma_data .* randn(size(data[:,1])[1], N)) ./ sqrt(N-1)
+            D = d * ones(N)' + sqrt(N - 1) .* E_
             E = D * Π
             A = Z * Π
             Y = U * Π
@@ -683,16 +1132,6 @@ function run_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=fal
     ekf_avgv = []
     ekf_avgeta = []
 
-    uic = model.S.parameters.T.(zeros(model.S.grid.nux,model.S.grid.nuy))
-    vic = model.S.parameters.T.(zeros(model.S.grid.nvx,model.S.grid.nvy))
-    etaic = model.S.parameters.T.(zeros(model.S.grid.nx,model.S.grid.ny))
-    current = 1
-    for m in (uic, vic, etaic)
-        sz = prod(size(m))
-        m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
-        current += sz
-    end
-
     Π = (I - (1 / N)*(ones(N) * ones(N)')) / sqrt(N - 1)
     W = zeros(N,N)
     T = zeros(N,N)
@@ -715,9 +1154,34 @@ function run_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=fal
     Z = zeros(model.S.grid.nu + model.S.grid.nv + model.S.grid.nT, N)
     S_all = []
 
+    uic = model.S.parameters.T.(zeros(model.S.grid.nux,model.S.grid.nuy))
+    vic = model.S.parameters.T.(zeros(model.S.grid.nvx,model.S.grid.nvy))
+    etaic = model.S.parameters.T.(zeros(model.S.grid.nx,model.S.grid.ny))
+    current = 1
+    for m in (uic, vic, etaic)
+        sz = prod(size(m))
+        m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
+        current += sz
+    end
+
     bred_vectors = compute_bred_vectors(N,sigma_initcond,uic,vic,etaic,model.S.parameters)
 
+    upert = zeros(size(uic))
+    vpert = zeros(size(vic))
+    etapert = zeros(size(etaic))
+
     for n = 1:N
+
+        current = 1
+        for m in (uic, vic, etaic)
+            sz = prod(size(m))
+            m .= reshape(param_guess[current:(current + sz - 1)], size(m)...)
+            current += sz
+        end
+
+        upert = upert .* 0
+        vpert = vpert .* 0
+        etapert = etapert .* 0
 
         S_kf = deepcopy(model.S)
 
@@ -729,10 +1193,53 @@ function run_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=fal
             S_kf)...
         )
 
+        # # using a frequency space initial perturbation
+        # for n = 1:5
+        #     for m = 1:5
+        #         urand = randn(4)
+        #         vrand = randn(4)
+        #         for k = 1:127
+        #             for j = 1:128
+        #                 upert[k,j] += sigma_initcond * urand[1] * cos((pi * n / 127) * k)*cos(pi * m / 128 * j)
+        #                     + sigma_initcond * urand[2] * sin((pi * n / 127) * k)*cos(pi * m / 128 * j)
+        #                     + sigma_initcond * urand[3] * cos((pi * n / 127) * k)*sin(pi * m / 128 * j)
+        #                     + sigma_initcond * urand[4] * sin((pi * n / 127) * k)*sin(pi * m / 128 * j)
+        #                 vpert[j,k] += sigma_initcond * vrand[1] * cos(pi * n / 128 * j) * cos(pi * m / 127 * k)
+        #                     + sigma_initcond * vrand[2] * cos(pi * n / 128 * j) * sin(pi * m / 127 * k)
+        #                     + sigma_initcond * vrand[3] * sin(pi * n / 128 * j) * cos(pi * m / 127 * k)
+        #                     + sigma_initcond * vrand[4] * sin(pi * n / 128 * j) * sin(pi * m / 127 * k)
+        #             end
+        #         end
+
+        #     end
+        # end
+
+        # for n = 1:5
+        #     for m = 1:5
+        #         etarand = randn(4)
+        #         for k = 1:128
+        #             for j = 1:128
+        #                 etapert[k,j] += sigma_initcond * etarand[1] * cos((pi * n / 128) * k)*cos(pi * m / 128 * j)
+        #                     + sigma_initcond * etarand[2] * cos((pi * n / 128) * k)*sin(pi * m / 128 * j)
+        #                     + sigma_initcond * etarand[3] * sin((pi * n / 128) * k)*cos(pi * m / 128 * j)
+        #                     + sigma_initcond * etarand[4] * sin((pi * n / 128) * k)*sin(pi * m / 128 * j)
+        #             end
+        #         end
+        #     end
+        # end
+        # uic = uic + upert ./ 5
+        # vic = vic + vpert ./ 5
+        # etaic = etaic + etapert ./ 5
+
+        # # using just random noise to perturb the initial conditions in each ensemble member
+        # uic = uic + model.sigma_initcond.*randn(size(uic)) ./ 5
+        # vic = vic + model.sigma_initcond.*randn(size(vic)) ./ 5
+        # etaic = etaic + model.sigma_initcond.*randn(size(etaic)) ./ 5
+
         # using bred vectors to perturb initial condition in each ensemble member
-        uic = uic + reshape(bred_vectors[n][1:model.S.grid.nu], model.S.grid.nux, model.S.grid.nuy)
-        vic = vic + reshape(bred_vectors[n][(model.S.grid.nu+1):(model.S.grid.nu+model.S.grid.nv)], model.S.grid.nvx, model.S.grid.nvy)
-        etaic = etaic + reshape(bred_vectors[n][(model.S.grid.nu+model.S.grid.nv+1):end], model.S.grid.nx, model.S.grid.ny)
+        uic .= uic + reshape(bred_vectors[n][1:model.S.grid.nu], model.S.grid.nux, model.S.grid.nuy)
+        vic .= vic + reshape(bred_vectors[n][(model.S.grid.nu+1):(model.S.grid.nu+model.S.grid.nv)], model.S.grid.nvx, model.S.grid.nvy)
+        etaic .= etaic + reshape(bred_vectors[n][(model.S.grid.nu+model.S.grid.nv+1):end], model.S.grid.nx, model.S.grid.ny)
 
         uic_new,vic_new,etaic_new = ShallowWaters.add_halo(uic,vic,etaic,P_kf.sst,S_kf)
 
@@ -969,7 +1476,12 @@ function run_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=fal
             E_fixed = (sigma_data .* randn(length(data_spots), N)) ./ sqrt(N-1)
             d = data[:, j][data_spots]
             D = d * ones(N)' + sqrt(N - 1) .* E_fixed
-            # E = D * Π
+            E = D * Π
+
+            println("Norm of E: ", norm(E))
+            println("Norm of E_fixed: ", norm(E_fixed))
+
+            println("Norm of E - E_fixed: ", norm(E - E_fixed))
             A = Z * Π
             Y = U * Π
 
@@ -980,9 +1492,8 @@ function run_ensemble_kf(model, param_guess; udata=false,vdata=false,etadata=fal
             D̃ = D - U
             temp = Y*Y' + cov(E_fixed[:] * sqrt(N-1), corrected=false) .* I(length(data_spots))
             # temp = Y*Y' + E_fixed*E_fixed'
-            tempinv = temp^(-1)
             # tempinv = (temp' * temp)^(-1) * temp'
-            W = Y'*(tempinv)*D̃
+            W = Y'*(inv(temp))*D̃
 
             Z += A*W ./ (sqrt(N - 1))
 
