@@ -20,7 +20,7 @@ mutable struct exp_initcond_adjmodel{T, S} <: AbstractNLPModel{T,S}
 end
 
 mutable struct exp_initcond_ekfmodel{T}
-    S::ShallowWaters.ModelSetup{T,T}        # model struct for adjoint
+    S::ShallowWaters.ModelSetup{T,T}        # model struct for ekf
     N::Int                                  # number of ensemble members
     data::Array{T, 2}                       # data to be assimilated
     sigma_initcond::T
@@ -679,7 +679,7 @@ function NLPModels.grad!(model, param_guess, G)
 
 end
 
-function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
+function run_initcond(Ndays, sigma_data, sigma_initcond; experiment=1)
 
     P = ShallowWaters.Parameter(T = Float64;
         L_ratio=1,
@@ -695,18 +695,19 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
         nx=128,
         Ndays=Ndays,
         initial_cond="ncfile",
-        initpath="./data_files/128_10yearspinup"
+        initpath="./data_files/128_90days_postspinup_dailysaves",
+        init_starti=1
     )
     S = ShallowWaters.model_setup(P)
 
     # number of ensemble members, typically leaving this 20
-    N = 20
+    N = 40
 
-    if exp === 1
+    if experiment === 1
         # (1)
 
         # daily data
-        data_steps = 225:224:S.grid.nt
+        data_steps = 224:224:S.grid.nt
 
         xu = 20:5:110
         yu = 20:5:110
@@ -728,7 +729,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
         udata=true
         vdata=true
         etadata=true
-    elseif exp === 2
+    elseif experiment === 2
         # (2)
         # daily data
         data_steps = 225:224:S.grid.nt
@@ -746,7 +747,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
         udata=true
         vdata=true
         etadata=false
-    elseif exp === 3
+    elseif experiment === 3
         # (3)
 
         # data every 4 days
@@ -765,7 +766,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
         udata=true
         vdata=true
         etadata=true
-    elseif exp === 4
+    elseif experiment === 4
         # (4)
         # daily data
         data_steps = 225:224:S.grid.nt
@@ -811,7 +812,8 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; exp=1)
     );
 
     # run the ensemble Kalman filter
-    ekf_avgu, ekf_avgv, ekf_avgeta = run_ensemble_kf(ekf_model, param_guess;udata=udata,vdata=vdata,etadata=etadata)
+    ekf_avgu, ekf_avgv, ekf_avgeta = enkf_run(ekf_model, param_guess; udata=true, vdata=true, etadata=true)
+    # ekf_avgu, ekf_avgv, ekf_avgeta = run_ensemble_kf(ekf_model, param_guess;udata=udata,vdata=vdata,etadata=etadata)
 
     # run the adjoint optimization
     # qn_options = MadNLP.QuasiNewtonOptions(; max_history=100)
