@@ -72,7 +72,6 @@ function initcond_model_setup(T, Ndays, N, data, sigma_data, sigma_initcond, dat
     # perturb initial conditions from those seen by the "true" model (create incorrect initial conditions)
     # trying to do this by perturbing the high wavelengths instead of doing a smooth perturbation with one 
     # standard deviation
-    # I'm (somewhat arbitrarily) choosing 1 ≤ n, m ≤ 20 for the wavenumbers
     upert = zeros(size(Prog_pred.u))
     vpert = zeros(size(Prog_pred.v))
     etapert = zeros(size(Prog_pred.η))
@@ -701,13 +700,16 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; experiment=1)
     S = ShallowWaters.model_setup(P)
 
     # number of ensemble members, typically leaving this 20
-    N = 40
+    N = 100
 
     if experiment === 1
         # (1)
 
         # daily data
         data_steps = 224:224:S.grid.nt
+
+        # xu = 30:15:100
+        # yu = 30:15:100
 
         xu = 20:5:110
         yu = 20:5:110
@@ -719,9 +721,9 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; experiment=1)
         Yu = ones(length(xu))' .* yu
 
         # we want data for all of u, v, and η for this experiment
-        data_spotsu = vec((Xu.-1) .* 127 + Yu)
-        data_spotsv = vec((Xu.-1) .* 128 + Yu) .+ (128*127)
-        data_spotseta = vec((Xu.-1) .* 128 + Yu) .+ (128*127*2)
+        data_spotsu = vec((Xu.-1) .* S.grid.nux + Yu)
+        data_spotsv = vec((Xu.-1) .* S.grid.nvx + Yu) .+ S.grid.nu
+        data_spotseta = vec((Xu.-1) .* S.grid.nx + Yu) .+ S.grid.nu .+ S.grid.nv
         data_spots = [data_spotsu; data_spotsv; data_spotseta]
 
         # data_spots = 1:1:(128*127*2 + 128^2)
@@ -875,9 +877,9 @@ function load_models()
 
     # true states
 
-    udata = ncread("./data_files/128_90days_postspinup_hourlysaves/u.nc", "u");
-    vdata = ncread("./data_files/128_90days_postspinup_hourlysaves/v.nc", "v");
-    etadata = ncread("./data_files/128_90days_postspinup_hourlysaves/eta.nc", "eta");
+    ud = ncread("./data_files/128_90days_postspinup_hourlysaves/u.nc", "u");
+    vd = ncread("./data_files/128_90days_postspinup_hourlysaves/v.nc", "v");
+    etad = ncread("./data_files/128_90days_postspinup_hourlysaves/eta.nc", "eta");
 
     # baseline
 
@@ -999,48 +1001,48 @@ function prognostic_fields()
 
 
     # predicted states
-    fig = Figure(size=(900,400), fontsize=15);
-    t = 748
+    fig = Figure(size=(550, 250));
+    t = 30
     ax1, hm1 = heatmap(fig[1,1],
-        states_pred[t].u,
+        abs.(ud[:,:,t] .- sum(Progkf_nodata[j].u for j in 1:100) ./ 100),
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
-        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, -)")
+        colorrange=(-maximum(abs.(ud[:,:,t])), maximum(abs.(ud[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title="|True - no data ensemble|")
     )
     Colorbar(fig[1,2], hm1)
 
     ax2, hm2 = heatmap(fig[1,3], 
-        states_pred[t].v,
+        abs.(ud[:,:,t] .- sum(Progkf_data[j].u for j in 1:100) ./ 100),
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
-        axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{v}(t = 30 \; \text{days}, x, y, -)")
+        colorrange=(-maximum(abs.(ud[:,:,t])), maximum(abs.(ud[:,:,t]))),
+        axis=(xlabel=L"x", ylabel=L"y", title="|True - data ensemble|")
     );
     Colorbar(fig[1,4], hm2)
 
     # results for u and v fields next to the prediction
     fig = Figure(size=(1000,600));
-    t = 24
+    t = 30
 
     ax1, hm1 = heatmap(fig[1,1],
-        udata[:,:,t],
+        ud[:,:,t],
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
+        colorrange=(-maximum(abs.(ud[:,:,t])), maximum(abs.(ud[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, -)")
     )
     Colorbar(fig[1,2], hm1)
 
     ax3, hm3 = heatmap(fig[1, 3], 
-        ekf_avgu[t],
+        sum(Progkf_data[j].u for j in 1:100) ./ 100,
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
+        colorrange=(-maximum(abs.(ud[:,:,t])), maximum(abs.(ud[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y)")
     );
     Colorbar(fig[1,4], hm3)
 
     ax2, hm2 = heatmap(fig[1,5], 
-        uadj_baseline[:,:,t],
+        sum(Progkf_nodata[j].u for j in 1:100) ./ 100,
         colormap=:balance,
-        colorrange=(-maximum(abs.(udata[:,:,t])), maximum(abs.(udata[:,:,t]))),
+        colorrange=(-maximum(abs.(ud[:,:,t])), maximum(abs.(ud[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title=L"\tilde{u}(t = 30 \; \text{days}, x, y, +)")
     );
     Colorbar(fig[1,6], hm2)
@@ -1294,13 +1296,13 @@ function energy_plots()
 
     # spatially averaged energy
 
-    true_energy = zeros(2245)
-    pred_energy = zeros(748)
-    ekf_energy = zeros(748)
+    true_energy = zeros(374)
+    pred_energy = zeros(374)
+    ekf_energy = zeros(374)
 
-    for t = 1:748
+    for t = 1:374
 
-        true_energy[t] = (sum(udata[:,:,t].^2) + sum(vdata[:,:,t].^2)) / (128 * 127)
+        true_energy[t] = (sum(ud[:,:,t].^2) + sum(vd[:,:,t].^2)) / (128 * 127)
         pred_energy[t] = (sum(states_pred[t].u.^2) + sum(states_pred[t].v.^2)) / (128 * 127)
         ekf_energy[t] = (sum(ekf_avgu[t].^2) + sum(ekf_avgv[t].^2)) / (128 * 127)
 
@@ -1308,9 +1310,9 @@ function energy_plots()
 
     fig = Figure(size=(800, 700));
     ax = Axis(fig[1,1])
-    lines!(ax, LinRange(0, 6750, 748), true_energy[1:748], label="Truth")
-    lines!(ax,LinRange(0, 6750, 748), pred_energy, label="Prediction",linestyle=:dash)
-    lines!(ax,LinRange(0, 6750, 748), ekf_energy, label="EKF")
+    lines!(ax, LinRange(0, 6750, 374), true_energy[1:374], label="Truth")
+    lines!(ax,LinRange(0, 6750, 374), pred_energy, label="Prediction",linestyle=:dash)
+    lines!(ax,LinRange(0, 6750, 374), ekf_energy, label="EKF")
     vlines!(ax, data_steps, color=:gray75, linestyle=:dot);
     axislegend()
 

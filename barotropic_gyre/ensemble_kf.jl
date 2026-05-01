@@ -52,48 +52,48 @@ function create_ensemble(model, N, param_guess)
             S_kf)...
         )
 
-        # # using a frequency space initial perturbation
-        # for n = 1:5
-        #     for m = 1:5
-        #         urand = randn(4)
-        #         vrand = randn(4)
-        #         for k = 1:127
-        #             for j = 1:128
-        #                 upert[k,j] += sigma_initcond * urand[1] * cos((pi * n / 127) * k)*cos(pi * m / 128 * j)
-        #                     + sigma_initcond * urand[2] * sin((pi * n / 127) * k)*cos(pi * m / 128 * j)
-        #                     + sigma_initcond * urand[3] * cos((pi * n / 127) * k)*sin(pi * m / 128 * j)
-        #                     + sigma_initcond * urand[4] * sin((pi * n / 127) * k)*sin(pi * m / 128 * j)
-        #                 vpert[j,k] += sigma_initcond * vrand[1] * cos(pi * n / 128 * j) * cos(pi * m / 127 * k)
-        #                     + sigma_initcond * vrand[2] * cos(pi * n / 128 * j) * sin(pi * m / 127 * k)
-        #                     + sigma_initcond * vrand[3] * sin(pi * n / 128 * j) * cos(pi * m / 127 * k)
-        #                     + sigma_initcond * vrand[4] * sin(pi * n / 128 * j) * sin(pi * m / 127 * k)
-        #             end
-        #         end
+        # using a frequency space initial perturbation
+        for n = 1:5
+            for m = 1:5
+                urand = randn(4)
+                vrand = randn(4)
+                for k = 1:127
+                    for j = 1:128
+                        upert[k,j] += sigma_initcond * urand[1] * cos((pi * n / 127) * k)*cos(pi * m / 128 * j)
+                            + sigma_initcond * urand[2] * sin((pi * n / 127) * k)*cos(pi * m / 128 * j)
+                            + sigma_initcond * urand[3] * cos((pi * n / 127) * k)*sin(pi * m / 128 * j)
+                            + sigma_initcond * urand[4] * sin((pi * n / 127) * k)*sin(pi * m / 128 * j)
+                        vpert[j,k] += sigma_initcond * vrand[1] * cos(pi * n / 128 * j) * cos(pi * m / 127 * k)
+                            + sigma_initcond * vrand[2] * cos(pi * n / 128 * j) * sin(pi * m / 127 * k)
+                            + sigma_initcond * vrand[3] * sin(pi * n / 128 * j) * cos(pi * m / 127 * k)
+                            + sigma_initcond * vrand[4] * sin(pi * n / 128 * j) * sin(pi * m / 127 * k)
+                    end
+                end
 
-        #     end
-        # end
+            end
+        end
 
-        # for n = 1:5
-        #     for m = 1:5
-        #         etarand = randn(4)
-        #         for k = 1:128
-        #             for j = 1:128
-        #                 etapert[k,j] += sigma_initcond * etarand[1] * cos((pi * n / 128) * k)*cos(pi * m / 128 * j)
-        #                     + sigma_initcond * etarand[2] * cos((pi * n / 128) * k)*sin(pi * m / 128 * j)
-        #                     + sigma_initcond * etarand[3] * sin((pi * n / 128) * k)*cos(pi * m / 128 * j)
-        #                     + sigma_initcond * etarand[4] * sin((pi * n / 128) * k)*sin(pi * m / 128 * j)
-        #             end
-        #         end
-        #     end
-        # end
-        # uic = uic + upert ./ 5
-        # vic = vic + vpert ./ 5
-        # etaic = etaic + etapert ./ 5
+        for n = 1:5
+            for m = 1:5
+                etarand = randn(4)
+                for k = 1:128
+                    for j = 1:128
+                        etapert[k,j] += sigma_initcond * etarand[1] * cos((pi * n / 128) * k)*cos(pi * m / 128 * j)
+                            + sigma_initcond * etarand[2] * cos((pi * n / 128) * k)*sin(pi * m / 128 * j)
+                            + sigma_initcond * etarand[3] * sin((pi * n / 128) * k)*cos(pi * m / 128 * j)
+                            + sigma_initcond * etarand[4] * sin((pi * n / 128) * k)*sin(pi * m / 128 * j)
+                    end
+                end
+            end
+        end
+        uic = uic + upert ./ 5
+        vic = vic + vpert ./ 5
+        etaic = etaic + etapert ./ 5
 
         # using just random noise to perturb the initial conditions in each ensemble member
-        uic = uic .* (1 + model.sigma_initcond*randn(1)[1])#model.sigma_initcond.*randn(size(uic)) ./ 5
-        vic = vic .* (1 + model.sigma_initcond*randn(1)[1])#model.sigma_initcond.*randn(size(vic)) ./ 5
-        etaic = etaic .* (1 + model.sigma_initcond*randn(1)[1])#model.sigma_initcond.*randn(size(etaic)) ./ 5
+        # uic = uic .* (1 + model.sigma_initcond*randn(1)[1])#model.sigma_initcond.*randn(size(uic)) ./ 5
+        # vic = vic .* (1 + model.sigma_initcond*randn(1)[1])#model.sigma_initcond.*randn(size(vic)) ./ 5
+        # etaic = etaic .* (1 + model.sigma_initcond*randn(1)[1])#model.sigma_initcond.*randn(size(etaic)) ./ 5
 
         # # using bred vectors to perturb initial condition in each ensemble member
         # uic .= uic + reshape(bred_vectors[n][1:model.S.grid.nu], model.S.grid.nux, model.S.grid.nuy)
@@ -341,20 +341,20 @@ function integrate_ensemble(N, nt, j, model, S_all, data_spots, data_steps)
 
         end
 
-        # # storing hourly data points
-        # if i ∈ 9:9:S_all[1].grid.nt
-        #     kf_avgu = zeros(model.S.grid.nux,model.S.grid.nuy)
-        #     kf_avgv = zeros(model.S.grid.nvx,model.S.grid.nvy)
-        #     kf_avgeta = zeros(model.S.grid.nx,model.S.grid.ny)
-        #     for n = 1:N
-        #         kf_avgu = kf_avgu .+ Progkf[n].u
-        #         kf_avgv = kf_avgv .+ Progkf[n].v
-        #         kf_avgeta = kf_avgeta .+ Progkf[n].η
-        #     end
-        #     push!(ekf_avgu, (kf_avgu)./N)
-        #     push!(ekf_avgv, (kf_avgv)./N)
-        #     push!(ekf_avgeta, (kf_avgeta)./N)
-        # end
+        # storing hourly data points
+        if i ∈ 9:9:S_all[1].grid.nt
+            kf_avgu = zeros(model.S.grid.nux,model.S.grid.nuy)
+            kf_avgv = zeros(model.S.grid.nvx,model.S.grid.nvy)
+            kf_avgeta = zeros(model.S.grid.nx,model.S.grid.ny)
+            for n = 1:N
+                kf_avgu = kf_avgu .+ Progkf[n].u
+                kf_avgv = kf_avgv .+ Progkf[n].v
+                kf_avgeta = kf_avgeta .+ Progkf[n].η
+            end
+            push!(ekf_avgu, (kf_avgu)./N)
+            push!(ekf_avgv, (kf_avgv)./N)
+            push!(ekf_avgeta, (kf_avgeta)./N)
+        end
 
     end
 
@@ -362,7 +362,7 @@ function integrate_ensemble(N, nt, j, model, S_all, data_spots, data_steps)
 
 end
 
-for n = 1:40
+for n = 1:100
 
     push!(Progkf_data, ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
         S_all_data[n].Prog.u,
@@ -384,16 +384,24 @@ for n = 1:40
 
 end
 
+fig = Figure(size=(550, 200));
+
+j = 72
+ax = Axis(fig[1,1], title="True - no data ensemble member")
+hm = heatmap!(ax, ud[:,:,2] .- Progkf_nodata[j].u)
+Colorbar(fig[1,2], hm)
+ax2 = Axis(fig[1,3], title="Data ensemble - no data ensemble")
+hm2 = heatmap!(ax2,Progkf_data[j].u .- Progkf_nodata[j].u)
+Colorbar(fig[1,4], hm2)
+
 function kalman_update(Progkf, j, data_spots, S_all, model; udata=true,vdata=true,etadata=true)
 
     Π = (I - (1 / N)*(ones(N) * ones(N)')) / sqrt(N - 1)
-    W = zeros(N,N)
 
     nu = S_all[1].grid.nu
     nv = S_all[1].grid.nv
     nT = S_all[1].grid.nT
 
-    S = zeros(length(data_spots), N)
     U = zeros(length(data_spots), N)
 
     Z = zeros(S_all[1].grid.nu + S_all[1].grid.nv + S_all[1].grid.nT, N)
@@ -404,15 +412,13 @@ function kalman_update(Progkf, j, data_spots, S_all, model; udata=true,vdata=tru
         if udata || udata && vdata || udata && vdata && etadata
             U[:, n] = Z[Int.(data_spots), n]
         elseif vdata
-            U[:, n] = Z[Int.(data_spots) .+ 128*127, n]
+            U[:, n] = Z[Int.(data_spots) .+ S_all[1].grid.nu, n]
         else etadata
-            U[:, n] = Z[Int.(data_spots) .+ 2*127*128, n]
+            U[:, n] = Z[Int.(data_spots) .+ S_all[1].grid.nu + S_all[1].grid.nv, n]
         end
     end
 
     E_fixed = (model.sigma_data .* randn(length(data_spots), N)) ./ sqrt(N-1)
-
-    println("Norm of e_fixed: ", norm(E_fixed))
 
     d = model.data[:, j][Int.(data_spots)]
     D = d * ones(N)' + sqrt(N - 1) .* E_fixed
@@ -430,13 +436,13 @@ function kalman_update(Progkf, j, data_spots, S_all, model; udata=true,vdata=tru
     end
 
     D̃ = D - U
-    # temp = Y * Y' + model.sigma_data^2 .* I(length(data_spots))
-    temp = Y*Y' + cov(E_fixed[:] * sqrt(N-1), corrected=false) .* I(length(data_spots))
+    temp = Y'*Y + model.sigma_data^2 .* I(N)
+    # temp = Y*Y' + cov(E_fixed[:] * sqrt(N-1), corrected=false) .* I(length(data_spots))
     # temp = Y*Y' + E_fixed*E_fixed'
     # tempinv = (temp' * temp)^(-1) * temp'
-    W = Y'*(inv(temp))*D̃
+    # tempinv = (1 / model.sigma_data^2) .* (I(length(data_spots)) - Y * (I(N) + Y' * Y ./ model.sigma_data^2)^(-1) * Y' / model.sigma_data^2) 
 
-    Z += A*W ./ (sqrt(N - 1))
+    Z += A*(inv(temp))*Y'*D̃ #./ (sqrt(N - 1))
 
     println("Norm of the ensemble array: ", norm(Z))
 
@@ -462,7 +468,6 @@ function kalman_update(Progkf, j, data_spots, S_all, model; udata=true,vdata=tru
         S_all[n].Prog.u .= u
         S_all[n].Prog.v .= v
         S_all[n].Prog.η .= eta
-
     end
 
     j += 1

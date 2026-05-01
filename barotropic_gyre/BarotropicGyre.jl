@@ -7,7 +7,7 @@ using JLD2, DSP, FFTW
 using ShallowWaters
 using NLPModels, MadNLP
 
-Random.seed!(649)
+Random.seed!(52)
 
 # Enzyme.API.looseTypeAnalysis!(true)
 # Enzyme.API.strictAliasing!(true)
