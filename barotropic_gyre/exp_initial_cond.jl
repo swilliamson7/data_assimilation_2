@@ -4,34 +4,7 @@ Aim to tune the initial condition, all of u, v, and η are perturbed
 Can play with how sparse the data is both temporally and spatially
 """
 
-mutable struct exp_initcond_adjmodel{T, S} <: AbstractNLPModel{T,S}
-    meta::NLPModelMeta{T,S}
-    counters::Counters
-    S::ShallowWaters.ModelSetup{T,T}        # model structure
-    u_nohalo::Array{T,2}
-    v_nohalo::Array{T,2}
-    J::Float64                              # objective value
-    data::Array{T, 2}
-    data_steps::StepRange{Int, Int}         # when data is assimilated temporally
-    data_spots::Array{Int,1}                # where data is located spatially, grid coordinates
-    j::Int                                  # for keeping track of location in data
-    i::Int                                  # timestep iterator, needed for checkpointing
-    t::Int64                                # model time (e.g. dt * i)
-end
-
-mutable struct exp_initcond_ekfmodel{T}
-    S::ShallowWaters.ModelSetup{T,T}        # model struct for ekf
-    N::Int                                  # number of ensemble members
-    data::Array{T, 2}                       # data to be assimilated
-    sigma_initcond::T
-    sigma_data::T
-    data_steps::StepRange{Int, Int}         # when data is assimilated
-    data_spots::Array{Int, 1}               # where data is located, grid coordinates
-    j::Int                                  # for keeping track of location in data
-    t::Int64                                # model timestep (i * Δt)
-end
-
-function initcond_model_setup(T, Ndays, N, data, sigma_data, sigma_initcond, data_steps, data_spots)
+function initcond_model_setup(T, Ndays, Nensembles, data, sigma_data, sigma_initcond, data_steps, data_spots)
 
     P_pred = ShallowWaters.Parameter(T=T;
         output=false,
@@ -119,6 +92,9 @@ function initcond_model_setup(T, Ndays, N, data, sigma_data, sigma_initcond, dat
     S_pred.Prog.v = vic
     S_pred.Prog.η = etaic
 
+    Sekf = deepcopy(S_pred)
+    Sadj = deepcopy(S_pred)
+
     println("norm of predicted - true u ", norm(S_pred.Prog.u - S_true.Prog.u))
     println("norm of predicted - true v ", norm(S_pred.Prog.v - S_true.Prog.v))
     println("norm of predicted - true eta ", norm(S_pred.Prog.η - S_true.Prog.η))
@@ -126,15 +102,10 @@ function initcond_model_setup(T, Ndays, N, data, sigma_data, sigma_initcond, dat
     param_guess = [vec(Prog_pred.u); vec(Prog_pred.v); vec(Prog_pred.η)]
 
     Spred = deepcopy(S_pred)
-    # ShallowWaters.time_integration(Spred)
     pred_states = hourly_save_run(Spred)
 
-    # doing deepcopies to be 100% sure that I'm not messing with the model at any point during setup
-    Skf = deepcopy(S_pred)
-    Sadj = deepcopy(S_pred)
-
     meta = NLPModelMeta(length(param_guess); ncon=0, nnzh=0,x0=param_guess)
-    adj_model = exp_initcond_adjmodel{T, typeof(param_guess)}(meta,
+    adj_model = adjmodel{T, typeof(param_guess)}(meta,
         Counters(),
         Sadj,
         zeros(size(Prog_pred.u)),
@@ -148,16 +119,19 @@ function initcond_model_setup(T, Ndays, N, data, sigma_data, sigma_initcond, dat
         0.0
     )
 
+    ekf_operators = enkfvars{T}(Sekf.grid,Nensembles,Int.(data_spots),Int(length(data_spots)))
     ekf_model = exp_initcond_ekfmodel{T}(
-        Skf,
-        N,
+        Sekf,
+        Nensembles,
         data,
         sigma_initcond,
         sigma_data,
+        0.0,
         data_steps,
         data_spots,
         1,
-        0
+        0,
+        ekf_operators
     )
 
     return adj_model, ekf_model, param_guess, S_pred, pred_states, P_pred
@@ -678,7 +652,7 @@ function NLPModels.grad!(model, param_guess, G)
 
 end
 
-function run_initcond(Ndays, sigma_data, sigma_initcond; experiment=1)
+function run_initcond(Ndays, Nensembles, sigma_data, sigma_initcond; experiment=1)
 
     P = ShallowWaters.Parameter(T = Float64;
         L_ratio=1,
@@ -698,9 +672,6 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; experiment=1)
         init_starti=1
     )
     S = ShallowWaters.model_setup(P)
-
-    # number of ensemble members, typically leaving this 20
-    N = 100
 
     if experiment === 1
         # (1)
@@ -805,7 +776,7 @@ function run_initcond(Ndays, sigma_data, sigma_initcond; experiment=1)
     # setup all models
     adj_model, ekf_model, param_guess, S_pred, states_pred, P_pred = initcond_model_setup(Float64,
         Ndays,
-        N,
+        Nensembles,
         data,
         sigma_data,
         sigma_initcond,
@@ -1002,9 +973,9 @@ function prognostic_fields()
 
     # predicted states
     fig = Figure(size=(550, 250));
-    t = 30
+    t = 10
     ax1, hm1 = heatmap(fig[1,1],
-        abs.(ud[:,:,t] .- sum(Progkf_nodata[j].u for j in 1:100) ./ 100),
+        abs.(ud[:,:,t] .- states_pred[end].u),
         colormap=:balance,
         colorrange=(-maximum(abs.(ud[:,:,t])), maximum(abs.(ud[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title="|True - no data ensemble|")
@@ -1012,7 +983,7 @@ function prognostic_fields()
     Colorbar(fig[1,2], hm1)
 
     ax2, hm2 = heatmap(fig[1,3], 
-        abs.(ud[:,:,t] .- sum(Progkf_data[j].u for j in 1:100) ./ 100),
+        abs.(ud[:,:,t] .- ekf_avgu[end]),
         colormap=:balance,
         colorrange=(-maximum(abs.(ud[:,:,t])), maximum(abs.(ud[:,:,t]))),
         axis=(xlabel=L"x", ylabel=L"y", title="|True - data ensemble|")

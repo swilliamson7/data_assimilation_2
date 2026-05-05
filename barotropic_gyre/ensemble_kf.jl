@@ -11,11 +11,12 @@ using Parameters
 
 function create_ensemble(model, N, param_guess)
 
-    S_all = []
+    S_all = model.enkfvars.S_ensemble
+    sigma_initcond = model.sigma_initcond
 
-    uic = model.S.parameters.T.(zeros(model.S.grid.nux,model.S.grid.nuy))
-    vic = model.S.parameters.T.(zeros(model.S.grid.nvx,model.S.grid.nvy))
-    etaic = model.S.parameters.T.(zeros(model.S.grid.nx,model.S.grid.ny))
+    uic = model.enkfvars.uic
+    vic = model.enkfvars.vic
+    etaic = model.enkfvars.etaic
     current = 1
     for m in (uic, vic, etaic)
         sz = prod(size(m))
@@ -25,9 +26,9 @@ function create_ensemble(model, N, param_guess)
 
     # bred_vectors = compute_bred_vectors(N,sigma_initcond,uic,vic,etaic,model.S.parameters)
 
-    upert = zeros(size(uic))
-    vpert = zeros(size(vic))
-    etapert = zeros(size(etaic))
+    upert = model.enkfvars.upert
+    vpert = model.enkfvars.vpert
+    etapert = model.enkfvars.etapert
 
     for n = 1:N
 
@@ -150,15 +151,21 @@ function create_ensemble(model, N, param_guess)
         copyto!(Diag.SemiLagrange.sst_ref,sst)
 
         # store all of the ensemble models
-        push!(S_all, S_kf)
+        S_all[n] = S_kf
 
     end
 
-    return S_all
+    # return S_all
 
 end
 
-function integrate_ensemble(N, nt, j, model, S_all, data_spots, data_steps)
+function integrate_ensemble(model,nt;udata=true,vdata=true,etadata=true)
+
+    S_all = model.enkfvars.S_ensemble
+    N = model.N
+    # nt = model.S.grid.nt
+    data_spots = model.data_spots
+    data_steps = model.data_steps
 
     # save the average u, v, and eta values from EnKF
     ekf_avgu = []
@@ -321,12 +328,12 @@ function integrate_ensemble(N, nt, j, model, S_all, data_spots, data_steps)
             copyto!(S_all[n].Prog.η, S_all[n].Diag.RungeKutta.η0)
 
             push!(Progkf, ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
-                S_all[n].Prog.u,
-                S_all[n].Prog.v,
-                S_all[n].Prog.η,
-                S_all[n].Prog.sst,
-                S_all[n]
-            )...)
+                    S_all[n].Prog.u,
+                    S_all[n].Prog.v,
+                    S_all[n].Prog.η,
+                    S_all[n].Prog.sst,
+                    S_all[n]
+                )...)
             )
 
         end
@@ -336,16 +343,25 @@ function integrate_ensemble(N, nt, j, model, S_all, data_spots, data_steps)
 
             println("you added data")
 
-            kalman_update(Progkf, j, data_spots, S_all, model;udata=true,vdata=true,etadata=true)
-            j += 1
+            kalman_update(Progkf,
+                model.j,
+                S_all,
+                model;
+                udata=udata,
+                vdata=vdata,
+                etadata=etadata
+            )
+            model.j += 1
+
+            println("j= ", model.j)
 
         end
 
         # storing hourly data points
         if i ∈ 9:9:S_all[1].grid.nt
-            kf_avgu = zeros(model.S.grid.nux,model.S.grid.nuy)
-            kf_avgv = zeros(model.S.grid.nvx,model.S.grid.nvy)
-            kf_avgeta = zeros(model.S.grid.nx,model.S.grid.ny)
+            kf_avgu = 0.0.*model.enkfvars.ekf_avgu
+            kf_avgv = 0.0.*model.enkfvars.ekf_avgv
+            kf_avgeta = 0.0.*model.enkfvars.ekf_avgeta
             for n = 1:N
                 kf_avgu = kf_avgu .+ Progkf[n].u
                 kf_avgv = kf_avgv .+ Progkf[n].v
@@ -362,89 +378,85 @@ function integrate_ensemble(N, nt, j, model, S_all, data_spots, data_steps)
 
 end
 
-for n = 1:100
+function kalman_update(Progkf, j, S_all, model; udata=true,vdata=true,etadata=true)
 
-    push!(Progkf_data, ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
-        S_all_data[n].Prog.u,
-        S_all_data[n].Prog.v,
-        S_all_data[n].Prog.η,
-        S_all_data[n].Prog.sst,
-        S_all_data[n]
-    )...)
-    )
+    data_spots = model.data_spots
+    ldataspots = model.enkfvars.ldataspots
+    N = model.N
 
-    push!(Progkf_nodata, ShallowWaters.PrognosticVars{Float64}(ShallowWaters.remove_halo(
-        S_all_nodata[n].Prog.u,
-        S_all_nodata[n].Prog.v,
-        S_all_nodata[n].Prog.η,
-        S_all_nodata[n].Prog.sst,
-        S_all_nodata[n]
-    )...)
-    )
+    nu = model.S.grid.nu
+    nv = model.S.grid.nv
+    nT = model.S.grid.nT
 
-end
+    nux = model.S.grid.nux
+    nuy = model.S.grid.nuy
+    nvx = model.S.grid.nvx
+    nvy = model.S.grid.nvy
+    nx = model.S.grid.nx
+    ny = model.S.grid.ny
 
-fig = Figure(size=(550, 200));
+    data_indexu = model.enkfvars.data_indexu
+    data_indexv = model.enkfvars.data_indexv
+    data_indexeta = model.enkfvars.data_indexeta
 
-j = 72
-ax = Axis(fig[1,1], title="True - no data ensemble member")
-hm = heatmap!(ax, ud[:,:,2] .- Progkf_nodata[j].u)
-Colorbar(fig[1,2], hm)
-ax2 = Axis(fig[1,3], title="Data ensemble - no data ensemble")
-hm2 = heatmap!(ax2,Progkf_data[j].u .- Progkf_nodata[j].u)
-Colorbar(fig[1,4], hm2)
+    Π = model.enkfvars.Π
+    U = model.enkfvars.U
+    Z = model.enkfvars.Z
+    D = model.enkfvars.D
 
-function kalman_update(Progkf, j, data_spots, S_all, model; udata=true,vdata=true,etadata=true)
+    E_cov = model.enkfvars.E_cov
+    E = model.enkfvars.E
 
-    Π = (I - (1 / N)*(ones(N) * ones(N)')) / sqrt(N - 1)
-
-    nu = S_all[1].grid.nu
-    nv = S_all[1].grid.nv
-    nT = S_all[1].grid.nT
-
-    U = zeros(length(data_spots), N)
-
-    Z = zeros(S_all[1].grid.nu + S_all[1].grid.nv + S_all[1].grid.nT, N)
+    A = model.enkfvars.A
+    Y = model.enkfvars.Y
+    D̃ = model.enkfvars.D̃
 
     for n = 1:N
-        Z[:, n] = [vec(Progkf[n].u); vec(Progkf[n].v); vec(Progkf[n].η)]
 
-        if udata || udata && vdata || udata && vdata && etadata
-            U[:, n] = Z[Int.(data_spots), n]
-        elseif vdata
-            U[:, n] = Z[Int.(data_spots) .+ S_all[1].grid.nu, n]
-        else etadata
-            U[:, n] = Z[Int.(data_spots) .+ S_all[1].grid.nu + S_all[1].grid.nv, n]
-        end
+        # Z[1:nu, n] .= reshape(Progkf[n].u, :)
+        # Z[nu+1:nu+nv, n] .= reshape(Progkf[n].v, :)
+        # Z[nu+nv+1:end, n] .= reshape(Progkf[n].η, :)
+
+        Z[:, n] .= [vec(Progkf[n].u); vec(Progkf[n].v); vec(Progkf[n].η)]
+
+        # if udata
+            U[:, n] .= Z[model.data_spots, n]
+        # end
+        # if vdata
+        #     U[nu+1:nu+nv, n] .= Z[data_indexv, n]
+        # end
+        # if etadata
+        #     U[(nu+nv+1):end, n] .= Z[data_indexeta, n]
+        # end
     end
 
-    E_fixed = (model.sigma_data .* randn(length(data_spots), N)) ./ sqrt(N-1)
+    E_cov .= (model.sigma_data .* randn(ldataspots, N)) ./ sqrt(N-1)
 
-    d = model.data[:, j][Int.(data_spots)]
-    D = d * ones(N)' + sqrt(N - 1) .* E_fixed
-    E = D * Π
+    @views d = model.data[:, j][Int.(data_spots)]
+    D .= d * ones(1,N) + sqrt(N - 1) .* E_cov
+
+    E .= D * Π
 
     println("Norm of E: ", norm(E))
-    println("Norm of E_fixed: ", norm(E_fixed))
+    println("Norm of E_cov: ", norm(E_cov))
 
-    println("Norm of E - E_fixed: ", norm(E - E_fixed))
-    A = Z * Π
-    Y = U * Π
+    println("Norm of E - E_cov: ", norm(E - E_cov))
+    A .= Z * Π
+    Y .= U * Π
 
     if norm(D) == 0
         error("The data is zero")
     end
 
-    D̃ = D - U
+    D̃ .= D - U
+
     temp = Y'*Y + model.sigma_data^2 .* I(N)
-    # temp = Y*Y' + cov(E_fixed[:] * sqrt(N-1), corrected=false) .* I(length(data_spots))
-    # temp = Y*Y' + E_fixed*E_fixed'
+    # temp = Y*Y' + cov(E_cov[:] * sqrt(N-1), corrected=false) .* I(length(data_spots))
+    # temp = Y*Y' + E_cov*E_cov'
     # tempinv = (temp' * temp)^(-1) * temp'
     # tempinv = (1 / model.sigma_data^2) .* (I(length(data_spots)) - Y * (I(N) + Y' * Y ./ model.sigma_data^2)^(-1) * Y' / model.sigma_data^2) 
 
     Z += A*(inv(temp))*Y'*D̃ #./ (sqrt(N - 1))
-
-    println("Norm of the ensemble array: ", norm(Z))
 
     if any(isnan, Z)
         error("Ensemble array contains NaN values")
@@ -454,9 +466,9 @@ function kalman_update(Progkf, j, data_spots, S_all, model; udata=true,vdata=tru
 
     # Store the updated state variables inside the ensemble members
     for n = 1:N
-        Progkf[n].u .= reshape(Z[1:nu,n],S_all[1].grid.nux,S_all[1].grid.nuy)
-        Progkf[n].v .= reshape(Z[nu+1:nv+nu,n],S_all[1].grid.nvx,S_all[1].grid.nvy)
-        Progkf[n].η .= reshape(Z[nv+nu+1:nu+nv+nT,n],S_all[1].grid.nx,S_all[1].grid.ny)
+        Progkf[n].u .= reshape(Z[1:nu,n],nux,nuy)
+        Progkf[n].v .= reshape(Z[nu+1:nv+nu,n],nvx,nvy)
+        Progkf[n].η .= reshape(Z[nv+nu+1:nu+nv+nT,n],nx,ny)
 
         u,v,eta = ShallowWaters.add_halo(Progkf[n].u,
             Progkf[n].v,
@@ -470,25 +482,17 @@ function kalman_update(Progkf, j, data_spots, S_all, model; udata=true,vdata=tru
         S_all[n].Prog.η .= eta
     end
 
-    j += 1
-
 end
 
-function enkf_run(model, param_guess; udata=false,vdata=false,etadata=false)
+function enkf_run(model, param_guess; udata=true,vdata=true,etadata=true)
 
     N = model.N
-    data = model.data
-    data_steps = model.data_steps
-    data_spots = model.data_spots
-    sigma_initcond = model.sigma_initcond
-    sigma_data = model.sigma_data
-    j = model.j
 
     # Generate the initial model realization ensemble,
-    S_all = create_ensemble(model, N, param_guess)
+    create_ensemble(model, N, param_guess)
 
     # integrate the ensemble
-    ekf_avgu, ekf_avgv, ekf_avgeta = integrate_ensemble(N, S_all[1].grid.nt, 1, model, S_all, data_spots, data_steps)
+    ekf_avgu, ekf_avgv, ekf_avgeta = integrate_ensemble(model,model.S.grid.nt;udata=udata,vdata=vdata,etadata=etadata)
 
 end
 

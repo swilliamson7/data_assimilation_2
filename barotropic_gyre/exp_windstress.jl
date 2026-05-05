@@ -19,20 +19,6 @@ mutable struct exp_windstress_adjmodel{T, S} <: AbstractNLPModel{T,S}
     t::Int64                                # model time (e.g. dt * i)
 end
 
-mutable struct exp_windstress_ekfmodel{T}
-    S::ShallowWaters.ModelSetup{T,T}        # model struct for adjoint
-    N::Int                                  # number of ensemble members
-    data::Array{T, 2}                       # data to be assimilated
-    sigma_initcond::T
-    sigma_data::T
-    sigma_forcing::T
-    pred_forcing::T
-    data_steps::StepRange{Int, Int}         # when data is assimilated
-    data_spots::Array{Int, 1}               # where data is located, grid coordinates
-    j::Int                                  # for keeping track of location in data
-    t::Int64                                # model timestep (i * Δt)
-end
-
 function windstress_model_setup(T, Ndays, N, data, sigma_data, sigma_initcond, sigma_forcing, pred_forcing, data_steps, data_spots)
 
     P_pred = ShallowWaters.Parameter(T=T;

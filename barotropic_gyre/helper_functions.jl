@@ -17,12 +17,9 @@ function eta_vec_to_mat(eta_vec,S)
     return eta_mat
 end
 
-function hourly_save_run(S_true; compute_freq=false)
+function hourly_save_run(S_true)
 
     true_states = []
-
-    freqpoweru = []
-    freqpowerv = []
 
     # setup that happens prior to the actual integration
     Diag = S_true.Diag
@@ -182,22 +179,6 @@ function hourly_save_run(S_true; compute_freq=false)
             temp1 = ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)
             push!(true_states, temp1)
-        end
-
-        if compute_freq
-
-            if i ∈ 10:10:S_true.grid.nt
-
-                tempu = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
-                    ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).u)
-                tempv = vec((ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
-                    ShallowWaters.remove_halo(u,v,η,sst,S_true)...)).v)
-
-                push!(freqpoweru, periodogram(states_adj[end].u; radialavg=true))
-                push!(freqpowerv, periodogram(states_adj[end].v; radialavg=true))
-
-            end
-
         end
 
         # Copy back from substeps

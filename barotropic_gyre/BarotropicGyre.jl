@@ -14,3 +14,4 @@ Random.seed!(52)
 
 include("helper_functions.jl")
 include("ensemble_kf.jl")
+include("model_structs.jl")
