@@ -120,6 +120,38 @@ function initcond_model_setup(T, Ndays, Nensembles, data, sigma_data, sigma_init
     )
 
     ekf_operators = enkfvars{T}(Sekf.grid,Nensembles,Int.(data_spots),Int(length(data_spots)))
+
+    # building the localization operators as sparse arrays
+    Xu = repeat(S_pred.grid.x_u, inner=length(S_pred.grid.y_u))
+    Yu = repeat(S_pred.grid.y_u, outer=length(S_pred.grid.x_u))
+
+    Xv = repeat(S_pred.grid.x_v, inner=length(S_pred.grid.y_v))
+    Yv = repeat(S_pred.grid.y_v, outer=length(S_pred.grid.x_v))
+
+    XT = repeat(S_pred.grid.x_T, inner=length(S_pred.grid.y_T))
+    YT = repeat(S_pred.grid.y_T, outer=length(S_pred.grid.x_T))
+
+    X = [vec(Xu);vec(Xv);vec(XT)]
+    Y = [vec(Yu);vec(Yv);vec(YT)]
+
+    Xdata = X[Int.(data_spots)]
+    Ydata = Y[Int.(data_spots)]
+
+    # rho = 0
+    # L = 70  # km
+    # L2 = 2*L^2
+    # for j = 1:(S_pred.grid.nu + S_pred.grid.nv + S_pred.grid.nT)
+    #     for k = 1:Int(length(data_spots))
+
+    #         rho = exp( -( (X[i] - Xdata[k])^2 + (Y[i] - Ydata[k])^2 )/(2*L^2) )
+
+    #         if rho > 1e-5
+    #             ekf_operators.rho_stateobs[j,k] = rho
+    #         end
+
+    #     end
+    # end
+
     ekf_model = exp_initcond_ekfmodel{T}(
         Sekf,
         Nensembles,
@@ -760,16 +792,16 @@ function run_initcond(Ndays, Nensembles, sigma_data, sigma_initcond; experiment=
         etadata=true
     end
 
-    ud = ncread("./data_files/128_90days_postspinup_dailysaves/u.nc", "u")
-    vd = ncread("./data_files/128_90days_postspinup_dailysaves/v.nc", "v")
-    etad = ncread("./data_files/128_90days_postspinup_dailysaves/eta.nc", "eta")
+    ud = ncread("./data_files/128_90days_postspinup_hourlysaves/u.nc", "u");
+    vd = ncread("./data_files/128_90days_postspinup_hourlysaves/v.nc", "v");
+    etad = ncread("./data_files/128_90days_postspinup_hourlysaves/eta.nc", "eta");
 
     M = length(data_steps)
     data = zeros(128*127*2 + 128^2, M)
     for k = 1:M
-        perturbed_udata = ud[:,:,k+1] .+ sigma_data .* randn(size(ud[:,:,1]))
-        perturbed_vdata = vd[:,:,k+1] .+ sigma_data .* randn(size(vd[:,:,1]))
-        perturbed_etadata = etad[:,:,k+1] .+ sigma_data .* randn(size(etad[:,:,1]))
+        perturbed_udata = ud[:,:,24*k+1] .+ sigma_data .* randn(size(ud[:,:,1]))
+        perturbed_vdata = vd[:,:,24*k+1] .+ sigma_data .* randn(size(vd[:,:,1]))
+        perturbed_etadata = etad[:,:,24*k+1] .+ sigma_data .* randn(size(etad[:,:,1]))
         data[:,k] .= [vec(perturbed_udata); vec(perturbed_vdata); vec(perturbed_etadata)]
     end
 
@@ -978,7 +1010,7 @@ function prognostic_fields()
         abs.(ud[:,:,t] .- states_pred[end].u),
         colormap=:balance,
         colorrange=(-maximum(abs.(ud[:,:,t])), maximum(abs.(ud[:,:,t]))),
-        axis=(xlabel=L"x", ylabel=L"y", title="|True - no data ensemble|")
+        axis=(xlabel=L"x", ylabel=L"y", title="|True - pred|")
     )
     Colorbar(fig[1,2], hm1)
 
@@ -1267,11 +1299,12 @@ function energy_plots()
 
     # spatially averaged energy
 
-    true_energy = zeros(374)
-    pred_energy = zeros(374)
-    ekf_energy = zeros(374)
+    n = 249
+    true_energy = zeros(n)
+    pred_energy = zeros(n)
+    ekf_energy = zeros(n)
 
-    for t = 1:374
+    for t = 1:249
 
         true_energy[t] = (sum(ud[:,:,t].^2) + sum(vd[:,:,t].^2)) / (128 * 127)
         pred_energy[t] = (sum(states_pred[t].u.^2) + sum(states_pred[t].v.^2)) / (128 * 127)
@@ -1281,9 +1314,9 @@ function energy_plots()
 
     fig = Figure(size=(800, 700));
     ax = Axis(fig[1,1])
-    lines!(ax, LinRange(0, 6750, 374), true_energy[1:374], label="Truth")
-    lines!(ax,LinRange(0, 6750, 374), pred_energy, label="Prediction",linestyle=:dash)
-    lines!(ax,LinRange(0, 6750, 374), ekf_energy, label="EKF")
+    lines!(ax, LinRange(0, 2245, n), true_energy[1:n], label="Truth")
+    lines!(ax,LinRange(0, 2245, n), pred_energy, label="Prediction",linestyle=:dash)
+    lines!(ax,LinRange(0, 2245, n), ekf_energy, label="EKF")
     vlines!(ax, data_steps, color=:gray75, linestyle=:dot);
     axislegend()
 

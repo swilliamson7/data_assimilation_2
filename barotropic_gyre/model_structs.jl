@@ -60,6 +60,10 @@ end
     Y::Array{T,2} = zeros(ldataspots, N)
     D̃::Array{T,2} = zeros(ldataspots, N)
 
+    # # localization operators
+    # rho_stateobs::SparseMatrixCSC{T,Int} = sparse(zeros(nux*nvx + nvx*nvy + nx*ny, ldataspots))
+    # rho_obs::SparseMatrixCSC{T,Int} = sparse(zeros(ldataspots, ldataspots))
+
 end
 
 function enkfvars{T}(G,Nensembles,data_spots,ldataspots) where {T<:AbstractFloat}

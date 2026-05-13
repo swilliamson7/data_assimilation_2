@@ -358,7 +358,8 @@ function integrate_ensemble(model,nt;udata=true,vdata=true,etadata=true)
         end
 
         # storing hourly data points
-        if i ∈ 9:9:S_all[1].grid.nt
+        # if i ∈ 9:9:nt
+        if i ∈ 1:1:nt
             kf_avgu = 0.0.*model.enkfvars.ekf_avgu
             kf_avgv = 0.0.*model.enkfvars.ekf_avgv
             kf_avgeta = 0.0.*model.enkfvars.ekf_avgeta

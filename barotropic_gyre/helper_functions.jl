@@ -175,7 +175,8 @@ function hourly_save_run(S_true)
         ShallowWaters.tracer!(i,u0rhs,v0rhs,Prog,Diag,S_true)
 
         # storing hourly states, will make it easier to compute KE spectra later
-        if i ∈ 9:9:S_true.grid.nt
+        # if i ∈ 9:9:S_true.grid.nt
+        if i ∈ 1:1:S_true.grid.nt
             temp1 = ShallowWaters.PrognosticVars{S_true.parameters.Tprog}(
                 ShallowWaters.remove_halo(u,v,η,sst,S_true)...)
             push!(true_states, temp1)
